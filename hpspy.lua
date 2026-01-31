@@ -1,6 +1,6 @@
--- BLOXSTRIKE VELOCITY GOD v2
--- Features: Silent Footsteps, Instant Aimbot, 0% Recoil, Wallbang, ESP
--- Update: Added Silent Steps (Networked), Toggleable GUI, Anti-Ban.
+-- BLOXSTRIKE MODULAR GOD v3
+-- Features: Independent Switches for Aimbot, Silent Steps, and ESP.
+-- Logic: Silent Footsteps is now a completely separate hook from the Aimbot.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,80 +8,75 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- SETTINGS (Default State)
+-- CONFIGURATION (State of each module)
 local Config = {
-    ESP_Enabled = true,
-    Silent_Footsteps = false,
-    God_Mode = false, -- (Aimbot/Recoil/Wallbang)
+    ESP = true,
+    Aimbot = false,      -- Controls Magnet, Recoil, Friction
+    SilentSteps = false, -- Controls Footstep Networking
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
--- MEMORY
+-- MEMORY STORAGE
 local Highlights = {}
 local OriginalSettings = {} 
-local Hooks = {} -- To store our hooks so we can toggle them
+local Hooks = {
+    SilentUpdate = nil,
+    SmokeCheck = nil
+}
 
 -- -------------------------------------------------------------------------
--- 1. ANTI-BAN (Crash Blocker)
+-- 1. ANTI-CRASH (Safety)
 -- -------------------------------------------------------------------------
 local function ProtectExecution(func)
     local success, result = pcall(func)
-    if not success then
-        -- Suppress errors to prevent detection
-    end
     return success
 end
 
 -- -------------------------------------------------------------------------
--- 2. SILENT FOOTSTEPS (New Feature)
+-- 2. MODULE A: SILENT FOOTSTEPS (Network Blocker)
 -- -------------------------------------------------------------------------
-local function InjectSilentSteps()
-    -- We scan for the "Update" function in MovementSounds
-    -- Fingerprint: It uses the constant "IsSniperScoped" and "LastFloorSoundTime"
+local function InitializeSilentSteps()
+    if Hooks.SilentUpdate then return end -- Already injected
+
+    -- Fingerprint the 'Update' function in MovementSounds
     for i, v in pairs(getgc()) do
         if type(v) == "function" and not is_synapse_function(v) then
             local info = debug.getinfo(v)
             if info.name == "Update" then
-                -- Check constants to be sure it's the right function
+                -- Verify using constants from your dump files
                 local consts = debug.getconstants(v)
                 if table.find(consts, "IsSniperScoped") and table.find(consts, "LastFloorSoundTime") then
                     
-                    -- FOUND IT. Hook it.
                     local old = v
-                    Hooks.Update = hookfunction(v, function(...)
-                        if Config.Silent_Footsteps then
-                            -- If enabled, we DO NOTHING.
-                            -- No code runs = No sound = No network packet.
+                    Hooks.SilentUpdate = hookfunction(v, function(...)
+                        if Config.SilentSteps then
+                            -- If Switch is ON: Block execution (No sound, no packet)
                             return 
                         end
-                        return old(...) -- If disabled, run normal game code
+                        -- If Switch is OFF: Run normal game code
+                        return old(...) 
                     end)
                     
-                    print("[Bloxstrike] Silent Footsteps Injected!")
-                    return true
+                    print("[Bloxstrike] Silent Steps Module: Ready")
+                    return
                 end
             end
         end
     end
-    return false
 end
 
 -- -------------------------------------------------------------------------
--- 3. AIMBOT / RECOIL / WALLBANG
+-- 3. MODULE B: VELOCITY AIMBOT (Memory Editor)
 -- -------------------------------------------------------------------------
-local function InjectGodMode()
-    local foundTable = false
-    
+local function ToggleAimbot(state)
     ProtectExecution(function()
-        -- STEP 1: Find the Master Settings Table
+        -- 1. Find the Master Settings Table
         for i, v in pairs(getgc(true)) do
             if type(v) == "table" 
-               and rawget(v, "TargetSelection") 
                and rawget(v, "Magnetism") 
-               and rawget(v, "RecoilAssist") 
-               and rawget(v, "Friction") then
+               and rawget(v, "RecoilAssist") then
                 
-                -- Backup for toggling off
+                -- Backup Default Settings (Only once)
                 if not OriginalSettings.Magnetism then
                     OriginalSettings = {
                         MagDist = v.Magnetism.MaxDistance,
@@ -92,32 +87,32 @@ local function InjectGodMode()
                     }
                 end
 
-                if Config.God_Mode then
-                    -- [ON] APPLY GOD SETTINGS
+                if state then
+                    -- [ON] ACTIVATE GOD SETTINGS
                     
-                    -- [A] TARGETING (Map Wide)
+                    -- Targeting
                     v.TargetSelection.MaxDistance = 5000       
                     v.TargetSelection.MaxAngle = 3.14          
 
-                    -- [B] MAGNETISM (INSTANT LOCK)
+                    -- Magnetism (Instant Snap)
                     v.Magnetism.Enabled = true
                     v.Magnetism.MaxDistance = 5000
-                    v.Magnetism.PullStrength = 5.0             -- BUMPED TO 5.0 (Absolute Instant)
+                    v.Magnetism.PullStrength = 5.0             -- MAX SPEED
                     v.Magnetism.StopThreshold = 0              
                     v.Magnetism.MaxAngleHorizontal = 3.14      
                     v.Magnetism.MaxAngleVertical = 1.5
 
-                    -- [C] FRICTION (Sniper Safe)
+                    -- Friction (Sniper Safe)
                     v.Friction.Enabled = true
-                    v.Friction.BubbleRadius = 10.0             -- 10.0 prevents wall shots
-                    v.Friction.MinSensitivity = 0.001          -- Crosshair freezes
+                    v.Friction.BubbleRadius = 10.0             -- 10.0 = Tight bubble
+                    v.Friction.MinSensitivity = 0.001          -- Zero mouse movement
                     
-                    -- [D] NO RECOIL
+                    -- No Recoil
                     v.RecoilAssist.Enabled = true
                     v.RecoilAssist.ReductionAmount = 1.0
                     
                 else
-                    -- [OFF] RESTORE LEGIT SETTINGS
+                    -- [OFF] RESTORE DEFAULT SETTINGS
                     if OriginalSettings.Magnetism then
                         v.Magnetism.MaxDistance = OriginalSettings.MagDist
                         v.Magnetism.PullStrength = OriginalSettings.Pull
@@ -126,29 +121,25 @@ local function InjectGodMode()
                         v.TargetSelection.MaxDistance = OriginalSettings.TargetDist
                     end
                 end
-
-                foundTable = true
             end
         end
 
-        -- STEP 2: Bypass Smoke Check (Safe Hook)
-        if not Hooks.Smoke then
+        -- 2. Smoke Check Bypass (Inject Once)
+        if not Hooks.SmokeCheck then
              for i, v in pairs(getgc()) do
                 if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
-                    Hooks.Smoke = hookfunction(v, function()
-                        if Config.God_Mode then return false end -- No smoke
-                        return true -- Normal smoke
+                    Hooks.SmokeCheck = hookfunction(v, function()
+                        if Config.Aimbot then return false end -- Bypass only if Aimbot is ON
+                        return true
                     end)
                 end
             end
         end
     end)
-    
-    return foundTable
 end
 
 -- -------------------------------------------------------------------------
--- 4. UI SYSTEM
+-- 4. GUI SYSTEM
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -164,14 +155,14 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "B"
+IconButton.Text = "M"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- DRAG LOGIC
+-- Dragging
 local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
@@ -189,7 +180,7 @@ IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.U
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 220) -- Taller for new button
+MainFrame.Size = UDim2.new(0, 220, 0, 220)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -206,7 +197,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY GOD v2"
+Title.Text = "MODULAR GOD v3"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -230,7 +221,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 5. BUTTON LOGIC
+-- 5. BUTTONS (INDEPENDENT SWITCHES)
 -- -------------------------------------------------------------------------
 local Content = Instance.new("Frame")
 Content.Size = UDim2.new(1, 0, 1, -30)
@@ -238,7 +229,7 @@ Content.Position = UDim2.new(0, 0, 0, 30)
 Content.BackgroundTransparency = 1
 Content.Parent = MainFrame
 
-local function Btn(name, order, callback)
+local function CreateSwitch(name, order, callback)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(0.9, 0, 0, 35)
     b.Position = UDim2.new(0.05, 0, 0, 10 + (order * 40))
@@ -261,28 +252,28 @@ local function Btn(name, order, callback)
     return b
 end
 
--- BUTTON 1: ESP
-Btn("Full Body ESP", 0, function() 
-    Config.ESP_Enabled = not Config.ESP_Enabled
-    return Config.ESP_Enabled 
+-- [SWITCH 1] ESP
+CreateSwitch("Full Body ESP", 0, function() 
+    Config.ESP = not Config.ESP
+    return Config.ESP 
 end)
 
--- BUTTON 2: GOD MODE (Aimbot/Recoil)
-Btn("Velocity Aimbot", 1, function()
-    Config.God_Mode = not Config.God_Mode
-    InjectGodMode() -- Updates the memory settings
-    return Config.God_Mode
+-- [SWITCH 2] VELOCITY AIMBOT
+CreateSwitch("Velocity Aimbot", 1, function()
+    Config.Aimbot = not Config.Aimbot
+    ToggleAimbot(Config.Aimbot) -- This only touches aim settings
+    return Config.Aimbot
 end)
 
--- BUTTON 3: SILENT FOOTSTEPS
-local SilentBtn = Btn("Silent Footsteps", 2, function()
-    Config.Silent_Footsteps = not Config.Silent_Footsteps
-    if not Hooks.Update then InjectSilentSteps() end -- Inject hook on first click
-    return Config.Silent_Footsteps
+-- [SWITCH 3] SILENT FOOTSTEPS
+CreateSwitch("Silent Footsteps", 2, function()
+    Config.SilentSteps = not Config.SilentSteps
+    InitializeSilentSteps() -- Ensures the hook exists (only runs once)
+    return Config.SilentSteps
 end)
 
 -- -------------------------------------------------------------------------
--- 6. ESP LOOP
+-- 6. VISUALS LOOP
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -296,7 +287,7 @@ RunService.RenderStepped:Connect(function()
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local char = player.Character
-                if Config.ESP_Enabled and char and IsEnemy(player) then
+                if Config.ESP and char and IsEnemy(player) then
                     if not Highlights[player] or Highlights[player].Parent ~= char then
                         local hl = Instance.new("Highlight")
                         hl.FillTransparency = 0.5; hl.OutlineTransparency = 0; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
@@ -312,4 +303,4 @@ RunService.RenderStepped:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God v2 Loaded")
+print("[Bloxstrike] Modular God v3 Loaded")
