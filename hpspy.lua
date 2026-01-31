@@ -1,6 +1,6 @@
--- BLOXSTRIKE HEAD-LOCK SUITE
--- Features: Aggressive Head Locking, Full Body ESP
--- Fixes: Added Vertical Offset (Aims at top of head), Increased Snap Speed
+-- BLOXSTRIKE PRECISION SUITE
+-- Features: Visual FOV Circle, Auto-Team Detection, Safe Aimbot
+-- Fixes: Aimbot only works inside the circle. Teammates are permanently ignored.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,13 +11,11 @@ local CoreGui = game:GetService("CoreGui")
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
-    Aimbot_Enabled = true,   
-    Hide_Teammates = true,
-    Invert_Teams = false,
+    Aimbot_Enabled = true,
     
-    Aimbot_FOV = 150,        -- Circle size
-    Aimbot_Speed = 0.3,      -- 0.3 = Strong Lock (Was 0.08)
-    Head_Offset = 0.2,       -- Aims 0.2 studs ABOVE center of head (Fixes "Low Aim")
+    Aimbot_FOV = 80,         -- The size of the circle (Smaller = More Legit)
+    Aimbot_Speed = 0.25,     -- Locking strength
+    Head_Offset = 0.15,      -- Aims slightly at top of head
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
@@ -26,6 +24,16 @@ local Highlights = {}
 local RayParams = RaycastParams.new()
 RayParams.FilterType = Enum.RaycastFilterType.Exclude
 RayParams.IgnoreWater = true
+
+-- VISUAL FOV CIRCLE
+local FovCircle = Drawing.new("Circle")
+FovCircle.Visible = true
+FovCircle.Radius = Config.Aimbot_FOV
+FovCircle.Color = Color3.fromRGB(255, 255, 255)
+FovCircle.Thickness = 1.5
+FovCircle.Transparency = 0.7
+FovCircle.Filled = false
+FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
 -- -------------------------------------------------------------------------
 -- 1. UI SYSTEM (Floating Icon)
@@ -71,7 +79,7 @@ game:GetService("UserInputService").InputChanged:Connect(function(input) if inpu
 
 -- [B] MAIN MENU
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 250)
+MainFrame.Size = UDim2.new(0, 220, 0, 180) -- Smaller menu
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -88,7 +96,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "HEAD LOCKER"
+Title.Text = "BLOXSTRIKE"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -113,17 +121,20 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 2. CORE LOGIC
+-- 2. CORE LOGIC (Auto Team Check)
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
-    if not Config.Hide_Teammates then return true end
     if player == LocalPlayer then return false end
     
+    -- Strict Attribute Check
     local myTeam = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
     local theirTeam = tostring(player:GetAttribute("Team") or "Nil")
-    local isSameTeam = (myTeam == theirTeam)
     
-    if Config.Invert_Teams then return isSameTeam else return not isSameTeam end
+    -- If teams match, they are FRIENDLY. Return False.
+    if myTeam == theirTeam then return false end
+    
+    -- If they differ, they are ENEMY. Return True.
+    return true
 end
 
 local function IsVisible(targetPart)
@@ -142,10 +153,15 @@ local function IsVisible(targetPart)
 end
 
 -- -------------------------------------------------------------------------
--- 3. HEAD LOCK LOOP
+-- 3. LOOP
 -- -------------------------------------------------------------------------
 local function GetBestTarget()
     local closest, maxDist = nil, Config.Aimbot_FOV
+    
+    -- Update FOV Circle Position
+    FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FovCircle.Visible = Config.Aimbot_Enabled
+    
     for _, player in pairs(Players:GetPlayers()) do
         if IsEnemy(player) then
             local char = player.Character
@@ -153,7 +169,10 @@ local function GetBestTarget()
                 local head = char.Head
                 local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
-                    local dist = (Vector2.new(vec.X, vec.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    -- STRICT DISTANCE CHECK
+                    local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
+                    
+                    -- Only lock if inside the circle
                     if dist < maxDist and IsVisible(head) then
                         maxDist = dist
                         closest = head
@@ -166,21 +185,20 @@ local function GetBestTarget()
 end
 
 RunService.RenderStepped:Connect(function()
-    -- AIMBOT LOGIC
+    -- AIMBOT
     if Config.Aimbot_Enabled then
         local target = GetBestTarget()
         if target then
             local current = Camera.CFrame
-            -- ADDED: Vertical Offset to aim at TOP of head
             local targetPos = target.Position + Vector3.new(0, Config.Head_Offset, 0)
             local goal = CFrame.new(current.Position, targetPos)
-            
-            -- Stronger Snap (0.3)
             Camera.CFrame = current:Lerp(goal, Config.Aimbot_Speed)
         end
+    else
+        FovCircle.Visible = false
     end
 
-    -- ESP LOGIC
+    -- ESP
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
@@ -225,14 +243,8 @@ end
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local AimBtn = Btn("Head Locker", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
-AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Head Locker: ON"
-
-local InvBtn = Btn("Invert Team Check", 2, function() Config.Invert_Teams = not Config.Invert_Teams; return Config.Invert_Teams end)
-InvBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
-
-local HideBtn = Btn("Hide Teammates", 3, function() Config.Hide_Teammates = not Config.Hide_Teammates; return Config.Hide_Teammates end)
-HideBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); HideBtn.Text = "Hide Teammates: ON"
+local AimBtn = Btn("FOV Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
+AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "FOV Aimbot: ON"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Head-Lock Suite Loaded")
+print("[Bloxstrike] Precision Suite Loaded")
