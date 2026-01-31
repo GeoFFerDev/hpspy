@@ -1,6 +1,6 @@
--- BLOXSTRIKE LEGIT SUITE
--- Features: Full Body ESP, Safe Camera Aimbot, Floating Icon
--- Safety: No Auto-Fire, No Memory Writes. 100% Client-Side.
+-- BLOXSTRIKE AMPLIFIER SUITE
+-- Features: Strong Magnet Aim (Feeds Native Auto-Shoot), Full Body ESP
+-- Safety: Uses Game's own shooting mechanics. 100% Client Visuals.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,12 +11,12 @@ local CoreGui = game:GetService("CoreGui")
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
-    Aimbot_Enabled = true,   -- Safe Aimbot Active
-    Hide_Teammates = true,   -- Confirmed Working
-    Invert_Teams = false,    -- Use if targeting wrong people
+    Magnet_Enabled = true,   -- The "Strong Aim Assist"
+    Hide_Teammates = true,
+    Invert_Teams = false,
     
-    Aimbot_FOV = 100,        -- Smaller circle = More "Legit" looking
-    Aimbot_Smooth = 0.2,     -- 0.1 = Snappy, 0.3 = Very Human
+    Magnet_FOV = 180,        -- Wider area to catch enemies
+    Magnet_Strength = 0.08,  -- Lower = Stronger Pull (0.05 is VERY strong)
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
@@ -70,7 +70,7 @@ game:GetService("UserInputService").InputChanged:Connect(function(input) if inpu
 
 -- [B] MAIN MENU
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 230)
+MainFrame.Size = UDim2.new(0, 220, 0, 250)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -87,7 +87,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "BLOXSTRIKE LEGIT"
+Title.Text = "AIM AMPLIFIER"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -112,7 +112,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 2. CORE LOGIC (Confirmed Working)
+-- 2. CORE LOGIC
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if not Config.Hide_Teammates then return true end
@@ -120,30 +120,36 @@ local function IsEnemy(player)
     
     local myTeam = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
     local theirTeam = tostring(player:GetAttribute("Team") or "Nil")
-    
     local isSameTeam = (myTeam == theirTeam)
     
-    if Config.Invert_Teams then
-        return isSameTeam 
-    else
-        return not isSameTeam
-    end
+    if Config.Invert_Teams then return isSameTeam else return not isSameTeam end
 end
 
 local function IsVisible(targetPart)
     local Origin = Camera.CFrame.Position
     local Direction = (targetPart.Position - Origin)
     RayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    
     local Result = workspace:Raycast(Origin, Direction, RayParams)
-    if Result and Result.Instance:IsDescendantOf(targetPart.Parent) then return true end
-    return Result == nil
+    
+    if Result then
+        -- FIX: Ignore transparent parts (Glass, Fences) so aimbot works through them
+        if Result.Instance.Transparency > 0.5 or Result.Instance.CanCollide == false then
+            return true 
+        end
+        if Result.Instance:IsDescendantOf(targetPart.Parent) then
+            return true
+        end
+        return false -- Wall blocked it
+    end
+    return true
 end
 
 -- -------------------------------------------------------------------------
--- 3. FEATURES LOOP
+-- 3. THE AMPLIFIER LOOP
 -- -------------------------------------------------------------------------
-local function GetBestTarget()
-    local closest, maxDist = nil, Config.Aimbot_FOV
+local function GetMagnetTarget()
+    local closest, maxDist = nil, Config.Magnet_FOV
     for _, player in pairs(Players:GetPlayers()) do
         if IsEnemy(player) then
             local char = player.Character
@@ -164,16 +170,14 @@ local function GetBestTarget()
 end
 
 RunService.RenderStepped:Connect(function()
-    local BestTarget = nil
-    if Config.Aimbot_Enabled then
-        BestTarget = GetBestTarget()
+    local MagnetTarget = nil
+    if Config.Magnet_Enabled then
+        MagnetTarget = GetMagnetTarget()
     end
 
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
-            
-            -- ESP Logic
             if Config.ESP_Enabled and char and IsEnemy(player) then
                 if not Highlights[player] or Highlights[player].Parent ~= char then
                     local hl = Instance.new("Highlight")
@@ -191,11 +195,14 @@ RunService.RenderStepped:Connect(function()
         end
     end
     
-    -- Safe Aimbot (Camera Move Only)
-    if BestTarget then
+    -- MAGNET LOGIC (Strong Pull)
+    if MagnetTarget then
         local current = Camera.CFrame
-        local goal = CFrame.new(current.Position, BestTarget.Position)
-        Camera.CFrame = current:Lerp(goal, Config.Aimbot_Smooth)
+        local goal = CFrame.new(current.Position, MagnetTarget.Position)
+        
+        -- We use a faster Lerp (0.08) to simulate "Strong Aim Assist"
+        -- It doesn't SNAP, it PULLES hard.
+        Camera.CFrame = current:Lerp(goal, Config.Magnet_Strength)
     end
 end)
 
@@ -223,20 +230,17 @@ local function Btn(name, order, func)
     return b
 end
 
--- Button List
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local AimBtn = Btn("Legit Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
-AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Legit Aimbot: ON"
+local MagBtn = Btn("Aim Amplifier", 1, function() Config.Magnet_Enabled = not Config.Magnet_Enabled; return Config.Magnet_Enabled end)
+MagBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); MagBtn.Text = "Aim Amplifier: ON"
 
--- Team Settings
 local InvBtn = Btn("Invert Team Check", 2, function() Config.Invert_Teams = not Config.Invert_Teams; return Config.Invert_Teams end)
 InvBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
 
 local HideBtn = Btn("Hide Teammates", 3, function() Config.Hide_Teammates = not Config.Hide_Teammates; return Config.Hide_Teammates end)
 HideBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); HideBtn.Text = "Hide Teammates: ON"
 
--- Cleanup
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Legit Suite Loaded")
+print("[Bloxstrike] Amplifier Loaded")
