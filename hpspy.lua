@@ -1,6 +1,6 @@
--- BLOXSTRIKE MODULAR GOD v3
--- Features: Independent Switches for Aimbot, Silent Steps, and ESP.
--- Logic: Silent Footsteps is now a completely separate hook from the Aimbot.
+-- BLOXSTRIKE VELOCITY GOD v4 (STABLE)
+-- Features: Velocity Aimbot (Instant Snap + No Recoil + Wallbang), ESP.
+-- Fixes: Removed risky Silent Footsteps. Fixed UI Sync (Buttons now match reality).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,11 +8,10 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- CONFIGURATION (State of each module)
+-- CONFIGURATION (Everything starts OFF for safety)
 local Config = {
-    ESP = true,
-    Aimbot = false,      -- Controls Magnet, Recoil, Friction
-    SilentSteps = false, -- Controls Footstep Networking
+    ESP = false,         -- Was true, now FALSE to match button
+    Aimbot = false,
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
@@ -20,12 +19,11 @@ local Config = {
 local Highlights = {}
 local OriginalSettings = {} 
 local Hooks = {
-    SilentUpdate = nil,
     SmokeCheck = nil
 }
 
 -- -------------------------------------------------------------------------
--- 1. ANTI-CRASH (Safety)
+-- 1. ANTI-CRASH
 -- -------------------------------------------------------------------------
 local function ProtectExecution(func)
     local success, result = pcall(func)
@@ -33,40 +31,7 @@ local function ProtectExecution(func)
 end
 
 -- -------------------------------------------------------------------------
--- 2. MODULE A: SILENT FOOTSTEPS (Network Blocker)
--- -------------------------------------------------------------------------
-local function InitializeSilentSteps()
-    if Hooks.SilentUpdate then return end -- Already injected
-
-    -- Fingerprint the 'Update' function in MovementSounds
-    for i, v in pairs(getgc()) do
-        if type(v) == "function" and not is_synapse_function(v) then
-            local info = debug.getinfo(v)
-            if info.name == "Update" then
-                -- Verify using constants from your dump files
-                local consts = debug.getconstants(v)
-                if table.find(consts, "IsSniperScoped") and table.find(consts, "LastFloorSoundTime") then
-                    
-                    local old = v
-                    Hooks.SilentUpdate = hookfunction(v, function(...)
-                        if Config.SilentSteps then
-                            -- If Switch is ON: Block execution (No sound, no packet)
-                            return 
-                        end
-                        -- If Switch is OFF: Run normal game code
-                        return old(...) 
-                    end)
-                    
-                    print("[Bloxstrike] Silent Steps Module: Ready")
-                    return
-                end
-            end
-        end
-    end
-end
-
--- -------------------------------------------------------------------------
--- 3. MODULE B: VELOCITY AIMBOT (Memory Editor)
+-- 2. VELOCITY AIMBOT (Memory Editor)
 -- -------------------------------------------------------------------------
 local function ToggleAimbot(state)
     ProtectExecution(function()
@@ -90,7 +55,7 @@ local function ToggleAimbot(state)
                 if state then
                     -- [ON] ACTIVATE GOD SETTINGS
                     
-                    -- Targeting
+                    -- Targeting (Map Wide)
                     v.TargetSelection.MaxDistance = 5000       
                     v.TargetSelection.MaxAngle = 3.14          
 
@@ -139,7 +104,7 @@ local function ToggleAimbot(state)
 end
 
 -- -------------------------------------------------------------------------
--- 4. GUI SYSTEM
+-- 3. GUI SYSTEM
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -155,14 +120,14 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "M"
+IconButton.Text = "B"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- Dragging
+-- Dragging Logic
 local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
@@ -180,7 +145,7 @@ IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.U
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 220)
+MainFrame.Size = UDim2.new(0, 220, 0, 150) -- Adjusted height
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -197,7 +162,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "MODULAR GOD v3"
+Title.Text = "VELOCITY GOD v4"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -221,7 +186,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 5. BUTTONS (INDEPENDENT SWITCHES)
+-- 4. BUTTONS (INDEPENDENT SWITCHES)
 -- -------------------------------------------------------------------------
 local Content = Instance.new("Frame")
 Content.Size = UDim2.new(1, 0, 1, -30)
@@ -233,7 +198,7 @@ local function CreateSwitch(name, order, callback)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(0.9, 0, 0, 35)
     b.Position = UDim2.new(0.05, 0, 0, 10 + (order * 40))
-    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45) -- Default Grey
     b.Text = name .. ": OFF"
     b.TextColor3 = Color3.fromRGB(255, 255, 255)
     b.Parent = Content
@@ -261,19 +226,12 @@ end)
 -- [SWITCH 2] VELOCITY AIMBOT
 CreateSwitch("Velocity Aimbot", 1, function()
     Config.Aimbot = not Config.Aimbot
-    ToggleAimbot(Config.Aimbot) -- This only touches aim settings
+    ToggleAimbot(Config.Aimbot) 
     return Config.Aimbot
 end)
 
--- [SWITCH 3] SILENT FOOTSTEPS
-CreateSwitch("Silent Footsteps", 2, function()
-    Config.SilentSteps = not Config.SilentSteps
-    InitializeSilentSteps() -- Ensures the hook exists (only runs once)
-    return Config.SilentSteps
-end)
-
 -- -------------------------------------------------------------------------
--- 6. VISUALS LOOP
+-- 5. VISUALS LOOP
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -303,4 +261,4 @@ RunService.RenderStepped:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Modular God v3 Loaded")
+print("[Bloxstrike] Velocity God v4 Loaded")
