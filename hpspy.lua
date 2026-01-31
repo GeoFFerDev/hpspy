@@ -1,43 +1,95 @@
--- BLOXSTRIKE MICRO-LOCK SUITE
--- Features: Tiny FOV, "Snap-to-Red" Logic, Sticky Target
--- Logic: Aimbot stays asleep until an enemy touches your crosshair.
+-- BLOXSTRIKE INTERNAL GOD SUITE
+-- Features: Map-Wide Magnetism, 0% Recoil, Smoke Bypass, Sticky Aim, ESP
+-- Method: Memory Hijack (Modifies AimAssistController Upvalues)
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
-    Aimbot_Enabled = true,
-    
-    Aimbot_FOV = 50,         -- TINY CIRCLE (Only locks when you look at them)
-    Aimbot_Speed = 0.4,      -- 0.4 = Fast Snap (Feels like a magnet)
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
 -- MEMORY
 local Highlights = {}
-local LockedTarget = nil 
-local RayParams = RaycastParams.new()
-RayParams.FilterType = Enum.RaycastFilterType.Exclude
-RayParams.IgnoreWater = true
-
--- VISUAL FOV CIRCLE (So you see where to aim)
-local FovCircle = Drawing.new("Circle")
-FovCircle.Visible = true
-FovCircle.Radius = Config.Aimbot_FOV
-FovCircle.Color = Color3.fromRGB(0, 255, 0) -- Green Circle = "Safe Zone"
-FovCircle.Thickness = 1.5
-FovCircle.Transparency = 0.8
-FovCircle.Filled = false
-FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+local OriginalSettings = {} 
 
 -- -------------------------------------------------------------------------
--- 1. UI SYSTEM (Floating Icon)
+-- 1. THE MEMORY HIJACK (The Core Logic)
+-- -------------------------------------------------------------------------
+local function InjectGodMode()
+    local foundTable = false
+    local foundSmoke = false
+    
+    -- STEP 1: Find the Master Settings Table in Garbage Collection
+    -- We look for the exact structure found in 'Initialize.md' and 'findBestTarget.md'
+    for i, v in pairs(getgc(true)) do
+        if type(v) == "table" 
+           and rawget(v, "TargetSelection") 
+           and rawget(v, "Magnetism") 
+           and rawget(v, "RecoilAssist") 
+           and rawget(v, "Friction") then
+            
+            -- Backup Original Settings (Safety)
+            if not OriginalSettings.Magnetism then
+                OriginalSettings = {
+                    MagDist = v.Magnetism.MaxDistance,
+                    Pull = v.Magnetism.PullStrength,
+                    FricRad = v.Friction.BubbleRadius,
+                    Recoil = v.RecoilAssist.ReductionAmount
+                }
+            end
+
+            -- [A] TARGETING (See Everyone)
+            -- Source: findBestTarget.md (Line 200)
+            v.TargetSelection.MaxDistance = 5000       -- Was 125. Now covers entire map.
+            v.TargetSelection.MaxAngle = 3.14          -- Was ~0.5. Now 180 degrees (Look behind you).
+
+            -- [B] MAGNETISM (Strong Lock)
+            -- Source: GetMagnetismRotation.md (Line 543)
+            v.Magnetism.Enabled = true
+            v.Magnetism.MaxDistance = 5000
+            v.Magnetism.PullStrength = 1.0             -- Was 0.11. Now Maximum Strength.
+            v.Magnetism.StopThreshold = 0              -- Never stops pulling.
+            v.Magnetism.MaxAngleHorizontal = 3.14      -- 360 lock.
+            v.Magnetism.MaxAngleVertical = 1.5
+
+            -- [C] FRICTION (Sticky Aim)
+            -- Source: GetFrictionMultiplier.md (Line 363)
+            v.Friction.Enabled = true
+            v.Friction.BubbleRadius = 25.0             -- Huge sticky hitbox (Was 2.4).
+            v.Friction.MinSensitivity = 0.05           -- Crosshair "freezes" on enemy.
+            
+            -- [D] NO RECOIL (Native)
+            -- Source: GetRecoilAssistMultiplier.md (Line 581)
+            v.RecoilAssist.Enabled = true
+            v.RecoilAssist.ReductionAmount = 1.0       -- Was 0.5 (50%). Now 1.0 (100% Reduction).
+
+            foundTable = true
+        end
+    end
+
+    -- STEP 2: Bypass Smoke Check
+    -- Source: doesRaycastIntersectSmoke.md (Line 44)
+    -- We find the function and force it to return FALSE
+    for i, v in pairs(getgc()) do
+        if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
+            hookfunction(v, function()
+                return false -- "No smoke detected, boss!"
+            end)
+            foundSmoke = true
+        end
+    end
+    
+    return foundTable
+end
+
+-- -------------------------------------------------------------------------
+-- 2. UI SYSTEM (Floating Icon)
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -76,11 +128,11 @@ IconButton.InputBegan:Connect(function(input)
     end
 end)
 IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
-UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
+game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 -- [B] MAIN MENU
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 150) -- Compact Menu
+MainFrame.Size = UDim2.new(0, 220, 0, 180)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -97,7 +149,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "MICRO-LOCK"
+Title.Text = "INTERNAL GOD"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -122,92 +174,17 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 2. LOGIC
+-- 3. VISUALS (Full Body ESP)
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
+    -- Native Attribute Team Check
     local myTeam = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
     local theirTeam = tostring(player:GetAttribute("Team") or "Nil")
     return myTeam ~= theirTeam
 end
 
-local function IsVisible(targetPart)
-    local Origin = Camera.CFrame.Position
-    local Direction = (targetPart.Position - Origin)
-    RayParams.FilterDescendantsInstances = {LocalPlayer.Character}
-    local Result = workspace:Raycast(Origin, Direction, RayParams)
-    
-    if Result then
-        if Result.Instance.Transparency > 0.5 or Result.Instance.CanCollide == false then return true end
-        if Result.Instance:IsDescendantOf(targetPart.Parent) then return true end
-        return false 
-    end
-    return true
-end
-
--- -------------------------------------------------------------------------
--- 3. THE "SNAP-TO-RED" LOOP
--- -------------------------------------------------------------------------
-local function GetTargetInCircle()
-    local closest, maxDist = nil, Config.Aimbot_FOV
-    
-    FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    FovCircle.Visible = Config.Aimbot_Enabled
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if IsEnemy(player) then
-            local char = player.Character
-            if char and char:FindFirstChild("Head") then
-                local head = char.Head
-                local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
-                if onScreen then
-                    -- STRICT FOV CHECK
-                    local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
-                    if dist < maxDist and IsVisible(head) then
-                        maxDist = dist
-                        closest = head
-                    end
-                end
-            end
-        end
-    end
-    return closest
-end
-
 RunService.RenderStepped:Connect(function()
-    -- AIMBOT (Logic: Sleep -> Wake Up -> Lock)
-    if Config.Aimbot_Enabled then
-        
-        -- 1. If we have a target, check if we should keep it
-        if LockedTarget then
-            local char = LockedTarget.Parent
-            local hum = char and char:FindFirstChild("Humanoid")
-            local vec, onScreen = Camera:WorldToViewportPoint(LockedTarget.Position)
-            local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
-            
-            -- BREAK LOCK IF: Dead, Hidden, or Too Far from Crosshair (User stopped aiming)
-            if not char or (hum and hum.Health <= 0) or not IsVisible(LockedTarget) or dist > (Config.Aimbot_FOV * 1.5) then
-                LockedTarget = nil 
-            end
-        end
-        
-        -- 2. If no target, scan the small circle
-        if not LockedTarget then
-            LockedTarget = GetTargetInCircle()
-        end
-        
-        -- 3. SNAP
-        if LockedTarget then
-            local current = Camera.CFrame
-            local goal = CFrame.new(current.Position, LockedTarget.Position)
-            Camera.CFrame = current:Lerp(goal, Config.Aimbot_Speed)
-        end
-    else
-        FovCircle.Visible = false
-        LockedTarget = nil
-    end
-
-    -- ESP (Visuals)
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
@@ -252,8 +229,15 @@ end
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local AimBtn = Btn("Micro-Lock Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
-AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Micro-Lock Aimbot: ON"
+local RageBtn = Btn("Inject God Settings", 1, function() 
+    local success = InjectGodMode()
+    if success then
+        return true -- Button turns green
+    else
+        return false -- Button stays grey (Retry)
+    end
+end)
+RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject God Settings"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Micro-Lock Loaded")
+print("[Bloxstrike] Internal God Loaded")
