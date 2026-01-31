@@ -1,6 +1,6 @@
--- BLOXSTRIKE PRECISION SUITE
--- Features: Visual FOV Circle, Auto-Team Detection, Safe Aimbot
--- Fixes: Aimbot only works inside the circle. Teammates are permanently ignored.
+-- BLOXSTRIKE STICKY SUITE
+-- Features: Sticky Aim (Prevents Shaking), Hard Lock, True Icon UI
+-- Fixes: Lock refuses to switch targets until the current one is dead.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -13,14 +13,14 @@ local Config = {
     ESP_Enabled = true,
     Aimbot_Enabled = true,
     
-    Aimbot_FOV = 80,         -- The size of the circle (Smaller = More Legit)
-    Aimbot_Speed = 0.25,     -- Locking strength
-    Head_Offset = 0.15,      -- Aims slightly at top of head
+    Aimbot_FOV = 100,        -- Circle size
+    Aimbot_Speed = 0.5,      -- 0.5 = VERY STRONG LOCK (Was 0.25)
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
 -- MEMORY
 local Highlights = {}
+local LockedTarget = nil -- The "Sticky" Variable
 local RayParams = RaycastParams.new()
 RayParams.FilterType = Enum.RaycastFilterType.Exclude
 RayParams.IgnoreWater = true
@@ -31,12 +31,12 @@ FovCircle.Visible = true
 FovCircle.Radius = Config.Aimbot_FOV
 FovCircle.Color = Color3.fromRGB(255, 255, 255)
 FovCircle.Thickness = 1.5
-FovCircle.Transparency = 0.7
+FovCircle.Transparency = 0.5
 FovCircle.Filled = false
 FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
 -- -------------------------------------------------------------------------
--- 1. UI SYSTEM (Floating Icon)
+-- 1. UI SYSTEM
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -79,7 +79,7 @@ game:GetService("UserInputService").InputChanged:Connect(function(input) if inpu
 
 -- [B] MAIN MENU
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 180) -- Smaller menu
+MainFrame.Size = UDim2.new(0, 220, 0, 180)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -121,19 +121,13 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 2. CORE LOGIC (Auto Team Check)
+-- 2. CORE LOGIC
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
-    
-    -- Strict Attribute Check
     local myTeam = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
     local theirTeam = tostring(player:GetAttribute("Team") or "Nil")
-    
-    -- If teams match, they are FRIENDLY. Return False.
     if myTeam == theirTeam then return false end
-    
-    -- If they differ, they are ENEMY. Return True.
     return true
 end
 
@@ -144,7 +138,6 @@ local function IsVisible(targetPart)
     local Result = workspace:Raycast(Origin, Direction, RayParams)
     
     if Result then
-        -- Ignore Glass/Transparent objects
         if Result.Instance.Transparency > 0.5 or Result.Instance.CanCollide == false then return true end
         if Result.Instance:IsDescendantOf(targetPart.Parent) then return true end
         return false 
@@ -153,12 +146,12 @@ local function IsVisible(targetPart)
 end
 
 -- -------------------------------------------------------------------------
--- 3. LOOP
+-- 3. STICKY TARGET LOGIC
 -- -------------------------------------------------------------------------
-local function GetBestTarget()
+local function GetNewTarget()
     local closest, maxDist = nil, Config.Aimbot_FOV
     
-    -- Update FOV Circle Position
+    -- Update FOV Circle
     FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     FovCircle.Visible = Config.Aimbot_Enabled
     
@@ -169,10 +162,7 @@ local function GetBestTarget()
                 local head = char.Head
                 local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
-                    -- STRICT DISTANCE CHECK
                     local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
-                    
-                    -- Only lock if inside the circle
                     if dist < maxDist and IsVisible(head) then
                         maxDist = dist
                         closest = head
@@ -185,20 +175,46 @@ local function GetBestTarget()
 end
 
 RunService.RenderStepped:Connect(function()
-    -- AIMBOT
+    -- AIMBOT LOGIC
     if Config.Aimbot_Enabled then
-        local target = GetBestTarget()
-        if target then
+        
+        -- 1. Check if we still have a valid Locked Target
+        if LockedTarget then
+            local char = LockedTarget.Parent
+            local hum = char and char:FindFirstChild("Humanoid")
+            
+            -- CONDITIONS TO LOSE TARGET:
+            -- Dead, Null, or Behind Wall
+            if not char or not LockedTarget.Parent or (hum and hum.Health <= 0) or not IsVisible(LockedTarget) then
+                LockedTarget = nil -- Reset target
+            else
+                -- Target is valid! Check FOV
+                local vec, onScreen = Camera:WorldToViewportPoint(LockedTarget.Position)
+                local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
+                if not onScreen or dist > Config.Aimbot_FOV then
+                    LockedTarget = nil -- Target left the circle
+                end
+            end
+        end
+        
+        -- 2. If no target, find a new one
+        if not LockedTarget then
+            LockedTarget = GetNewTarget()
+        end
+        
+        -- 3. AIM AT TARGET
+        if LockedTarget then
             local current = Camera.CFrame
-            local targetPos = target.Position + Vector3.new(0, Config.Head_Offset, 0)
-            local goal = CFrame.new(current.Position, targetPos)
+            -- Direct Head Aim (No Offset = Harder Lock)
+            local goal = CFrame.new(current.Position, LockedTarget.Position)
             Camera.CFrame = current:Lerp(goal, Config.Aimbot_Speed)
         end
     else
         FovCircle.Visible = false
+        LockedTarget = nil
     end
 
-    -- ESP
+    -- ESP LOGIC
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
@@ -243,8 +259,8 @@ end
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local AimBtn = Btn("FOV Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
-AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "FOV Aimbot: ON"
+local AimBtn = Btn("Sticky Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
+AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Sticky Aimbot: ON"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Precision Suite Loaded")
+print("[Bloxstrike] Sticky Suite Loaded")
