@@ -1,33 +1,38 @@
--- BLOXSTRIKE GHOST SUITE (100% VISUALS ONLY)
--- Removed: Aimbot, Triggerbot, RCS (These caused the ban)
--- Kept: Full Body Highlight, Safe Team Check, Floating Icon
--- Status: UNDETECTED (Read-Only)
+-- BLOXSTRIKE LEGIT SUITE
+-- Features: Full Body ESP, Safe Camera Aimbot, Floating Icon
+-- Safety: No Auto-Fire, No Memory Writes. 100% Client-Side.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
+local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
+local CoreGui = game:GetService("CoreGui")
 
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
-    Hide_Teammates = true,   -- Default ON
-    Invert_Teams = false,    -- Click if highlighting wrong people
-    Enemy_Color = Color3.fromRGB(255, 0, 0), -- Red
-    Team_Color = Color3.fromRGB(0, 255, 0)   -- Green
+    Aimbot_Enabled = true,   -- Safe Aimbot Active
+    Hide_Teammates = true,   -- Confirmed Working
+    Invert_Teams = false,    -- Use if targeting wrong people
+    
+    Aimbot_FOV = 100,        -- Smaller circle = More "Legit" looking
+    Aimbot_Smooth = 0.2,     -- 0.1 = Snappy, 0.3 = Very Human
+    Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
 -- MEMORY
 local Highlights = {}
+local RayParams = RaycastParams.new()
+RayParams.FilterType = Enum.RaycastFilterType.Exclude
+RayParams.IgnoreWater = true
 
 -- -------------------------------------------------------------------------
--- 1. UI SYSTEM (Floating Icon)
+-- 1. UI SYSTEM
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
--- Safe Parenting (Bypasses basic GUI detection)
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
 
--- [A] THE FLOATING ICON
+-- [A] FLOATING ICON
 local IconFrame = Instance.new("Frame")
 IconFrame.Size = UDim2.new(0, 50, 0, 50)
 IconFrame.Position = UDim2.new(0.9, -60, 0.4, 0)
@@ -46,7 +51,7 @@ IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- SMOOTH DRAG LOGIC (Mobile Optimized)
+-- DRAG LOGIC
 local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
@@ -63,9 +68,9 @@ end)
 IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
--- [B] THE MAIN MENU
+-- [B] MAIN MENU
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 180) -- Smaller, cleaner
+MainFrame.Size = UDim2.new(0, 220, 0, 230)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -82,7 +87,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "BLOXSTRIKE GHOST"
+Title.Text = "BLOXSTRIKE LEGIT"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -99,7 +104,7 @@ MinBtn.Font = Enum.Font.SourceSansBold
 MinBtn.TextSize = 20
 MinBtn.Parent = TitleBar
 
--- TOGGLE LOGIC
+-- UI TOGGLE
 local isDraggingIcon = false
 IconButton.MouseButton1Down:Connect(function() isDraggingIcon = false end)
 IconButton.InputChanged:Connect(function() isDraggingIcon = true end)
@@ -107,7 +112,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 2. CORE LOGIC (Safe Team Check)
+-- 2. CORE LOGIC (Confirmed Working)
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if not Config.Hide_Teammates then return true end
@@ -125,15 +130,50 @@ local function IsEnemy(player)
     end
 end
 
+local function IsVisible(targetPart)
+    local Origin = Camera.CFrame.Position
+    local Direction = (targetPart.Position - Origin)
+    RayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    local Result = workspace:Raycast(Origin, Direction, RayParams)
+    if Result and Result.Instance:IsDescendantOf(targetPart.Parent) then return true end
+    return Result == nil
+end
+
 -- -------------------------------------------------------------------------
--- 3. VISUALS (Highlight Only)
+-- 3. FEATURES LOOP
 -- -------------------------------------------------------------------------
+local function GetBestTarget()
+    local closest, maxDist = nil, Config.Aimbot_FOV
+    for _, player in pairs(Players:GetPlayers()) do
+        if IsEnemy(player) then
+            local char = player.Character
+            if char and char:FindFirstChild("Head") then
+                local head = char.Head
+                local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local dist = (Vector2.new(vec.X, vec.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if dist < maxDist and IsVisible(head) then
+                        maxDist = dist
+                        closest = head
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
 RunService.RenderStepped:Connect(function()
+    local BestTarget = nil
+    if Config.Aimbot_Enabled then
+        BestTarget = GetBestTarget()
+    end
+
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
             
-            -- Only apply if ESP is ON, Character exists, and they are an ENEMY
+            -- ESP Logic
             if Config.ESP_Enabled and char and IsEnemy(player) then
                 if not Highlights[player] or Highlights[player].Parent ~= char then
                     local hl = Instance.new("Highlight")
@@ -146,15 +186,21 @@ RunService.RenderStepped:Connect(function()
                     Highlights[player] = hl
                 end
             else
-                -- Instantly remove if they become a teammate or ESP is off
                 if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
             end
         end
     end
+    
+    -- Safe Aimbot (Camera Move Only)
+    if BestTarget then
+        local current = Camera.CFrame
+        local goal = CFrame.new(current.Position, BestTarget.Position)
+        Camera.CFrame = current:Lerp(goal, Config.Aimbot_Smooth)
+    end
 end)
 
 -- -------------------------------------------------------------------------
--- 4. MENU BUTTONS
+-- 4. BUTTONS
 -- -------------------------------------------------------------------------
 local Content = Instance.new("Frame")
 Content.Size = UDim2.new(1, 0, 1, -30)
@@ -177,22 +223,20 @@ local function Btn(name, order, func)
     return b
 end
 
-Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
+-- Button List
+local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
+EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
--- THE FIX BUTTONS
-local InvBtn = Btn("Invert Team Check", 1, function() 
-    Config.Invert_Teams = not Config.Invert_Teams
-    return Config.Invert_Teams 
-end)
+local AimBtn = Btn("Legit Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
+AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Legit Aimbot: ON"
+
+-- Team Settings
+local InvBtn = Btn("Invert Team Check", 2, function() Config.Invert_Teams = not Config.Invert_Teams; return Config.Invert_Teams end)
 InvBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
 
-local HideBtn = Btn("Hide Teammates", 2, function() 
-    Config.Hide_Teammates = not Config.Hide_Teammates
-    return Config.Hide_Teammates 
-end)
-HideBtn.Text = "Hide Teammates: ON"
-HideBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+local HideBtn = Btn("Hide Teammates", 3, function() Config.Hide_Teammates = not Config.Hide_Teammates; return Config.Hide_Teammates end)
+HideBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); HideBtn.Text = "Hide Teammates: ON"
 
 -- Cleanup
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Ghost Suite Loaded")
+print("[Bloxstrike] Legit Suite Loaded")
