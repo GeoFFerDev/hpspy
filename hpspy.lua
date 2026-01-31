@@ -1,6 +1,6 @@
--- BLOXSTRIKE AMPLIFIER SUITE
--- Features: Strong Magnet Aim (Feeds Native Auto-Shoot), Full Body ESP
--- Safety: Uses Game's own shooting mechanics. 100% Client Visuals.
+-- BLOXSTRIKE HEAD-LOCK SUITE
+-- Features: Aggressive Head Locking, Full Body ESP
+-- Fixes: Added Vertical Offset (Aims at top of head), Increased Snap Speed
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,12 +11,13 @@ local CoreGui = game:GetService("CoreGui")
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
-    Magnet_Enabled = true,   -- The "Strong Aim Assist"
+    Aimbot_Enabled = true,   
     Hide_Teammates = true,
     Invert_Teams = false,
     
-    Magnet_FOV = 180,        -- Wider area to catch enemies
-    Magnet_Strength = 0.08,  -- Lower = Stronger Pull (0.05 is VERY strong)
+    Aimbot_FOV = 150,        -- Circle size
+    Aimbot_Speed = 0.3,      -- 0.3 = Strong Lock (Was 0.08)
+    Head_Offset = 0.2,       -- Aims 0.2 studs ABOVE center of head (Fixes "Low Aim")
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
@@ -27,7 +28,7 @@ RayParams.FilterType = Enum.RaycastFilterType.Exclude
 RayParams.IgnoreWater = true
 
 -- -------------------------------------------------------------------------
--- 1. UI SYSTEM
+-- 1. UI SYSTEM (Floating Icon)
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -87,7 +88,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "AIM AMPLIFIER"
+Title.Text = "HEAD LOCKER"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -129,27 +130,22 @@ local function IsVisible(targetPart)
     local Origin = Camera.CFrame.Position
     local Direction = (targetPart.Position - Origin)
     RayParams.FilterDescendantsInstances = {LocalPlayer.Character}
-    
     local Result = workspace:Raycast(Origin, Direction, RayParams)
     
     if Result then
-        -- FIX: Ignore transparent parts (Glass, Fences) so aimbot works through them
-        if Result.Instance.Transparency > 0.5 or Result.Instance.CanCollide == false then
-            return true 
-        end
-        if Result.Instance:IsDescendantOf(targetPart.Parent) then
-            return true
-        end
-        return false -- Wall blocked it
+        -- Ignore Glass/Transparent objects
+        if Result.Instance.Transparency > 0.5 or Result.Instance.CanCollide == false then return true end
+        if Result.Instance:IsDescendantOf(targetPart.Parent) then return true end
+        return false 
     end
     return true
 end
 
 -- -------------------------------------------------------------------------
--- 3. THE AMPLIFIER LOOP
+-- 3. HEAD LOCK LOOP
 -- -------------------------------------------------------------------------
-local function GetMagnetTarget()
-    local closest, maxDist = nil, Config.Magnet_FOV
+local function GetBestTarget()
+    local closest, maxDist = nil, Config.Aimbot_FOV
     for _, player in pairs(Players:GetPlayers()) do
         if IsEnemy(player) then
             local char = player.Character
@@ -170,39 +166,35 @@ local function GetMagnetTarget()
 end
 
 RunService.RenderStepped:Connect(function()
-    local MagnetTarget = nil
-    if Config.Magnet_Enabled then
-        MagnetTarget = GetMagnetTarget()
+    -- AIMBOT LOGIC
+    if Config.Aimbot_Enabled then
+        local target = GetBestTarget()
+        if target then
+            local current = Camera.CFrame
+            -- ADDED: Vertical Offset to aim at TOP of head
+            local targetPos = target.Position + Vector3.new(0, Config.Head_Offset, 0)
+            local goal = CFrame.new(current.Position, targetPos)
+            
+            -- Stronger Snap (0.3)
+            Camera.CFrame = current:Lerp(goal, Config.Aimbot_Speed)
+        end
     end
 
+    -- ESP LOGIC
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
             if Config.ESP_Enabled and char and IsEnemy(player) then
                 if not Highlights[player] or Highlights[player].Parent ~= char then
                     local hl = Instance.new("Highlight")
-                    hl.FillTransparency = 0.5
-                    hl.OutlineTransparency = 0
-                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.FillColor = Config.Enemy_Color
-                    hl.OutlineColor = Config.Enemy_Color
-                    hl.Parent = char
+                    hl.FillTransparency = 0.5; hl.OutlineTransparency = 0; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.FillColor = Config.Enemy_Color; hl.OutlineColor = Config.Enemy_Color; hl.Parent = char
                     Highlights[player] = hl
                 end
             else
                 if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
             end
         end
-    end
-    
-    -- MAGNET LOGIC (Strong Pull)
-    if MagnetTarget then
-        local current = Camera.CFrame
-        local goal = CFrame.new(current.Position, MagnetTarget.Position)
-        
-        -- We use a faster Lerp (0.08) to simulate "Strong Aim Assist"
-        -- It doesn't SNAP, it PULLES hard.
-        Camera.CFrame = current:Lerp(goal, Config.Magnet_Strength)
     end
 end)
 
@@ -233,8 +225,8 @@ end
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local MagBtn = Btn("Aim Amplifier", 1, function() Config.Magnet_Enabled = not Config.Magnet_Enabled; return Config.Magnet_Enabled end)
-MagBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); MagBtn.Text = "Aim Amplifier: ON"
+local AimBtn = Btn("Head Locker", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
+AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Head Locker: ON"
 
 local InvBtn = Btn("Invert Team Check", 2, function() Config.Invert_Teams = not Config.Invert_Teams; return Config.Invert_Teams end)
 InvBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
@@ -243,4 +235,4 @@ local HideBtn = Btn("Hide Teammates", 3, function() Config.Hide_Teammates = not 
 HideBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); HideBtn.Text = "Hide Teammates: ON"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Amplifier Loaded")
+print("[Bloxstrike] Head-Lock Suite Loaded")
