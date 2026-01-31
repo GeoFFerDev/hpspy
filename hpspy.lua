@@ -1,12 +1,11 @@
--- BLOXSTRIKE SNIPER GOD SUITE
--- Features: Precision Magnetism (Fixes Early Shots), 0% Recoil, Crash Blocker
--- Fixes: Reduced Bubble Radius to 10.0 to prevent locking on enemies behind walls.
+-- BLOXSTRIKE VELOCITY SUITE
+-- Features: Instant Snap Magnetism, 0% Recoil, Crash Blocker
+-- Update: Increased Pull Strength to 3.0 for faster locking.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
-local LogService = game:GetService("LogService")
 local LocalPlayer = Players.LocalPlayer
 
 -- SETTINGS
@@ -22,11 +21,9 @@ local OriginalSettings = {}
 -- -------------------------------------------------------------------------
 -- 1. ANTI-BAN (Crash Blocker)
 -- -------------------------------------------------------------------------
--- This prevents the game from sending "Script Error" reports to the devs
 local function ProtectExecution(func)
     local success, result = pcall(func)
     if not success then
-        -- If it fails, we suppress the error so the game doesn't know.
         warn("[Bloxstrike] Stealth Mode: Prevented Error Report.")
     end
     return success
@@ -47,7 +44,7 @@ local function InjectGodMode()
                and rawget(v, "RecoilAssist") 
                and rawget(v, "Friction") then
                 
-                -- Backup (Safety)
+                -- Backup
                 if not OriginalSettings.Magnetism then
                     OriginalSettings = {
                         MagDist = v.Magnetism.MaxDistance,
@@ -57,22 +54,22 @@ local function InjectGodMode()
                     }
                 end
 
-                -- [A] TARGETING (Map Wide)
+                -- [A] TARGETING
                 v.TargetSelection.MaxDistance = 5000       
                 v.TargetSelection.MaxAngle = 3.14          
 
-                -- [B] MAGNETISM (Stronger but Tighter)
+                -- [B] MAGNETISM (SPEED BOOST)
                 v.Magnetism.Enabled = true
                 v.Magnetism.MaxDistance = 5000
-                v.Magnetism.PullStrength = 1.5             -- BOOSTED (Was 1.0). Faster snap.
+                v.Magnetism.PullStrength = 3.0             -- DOUBLED (Was 1.5). Instant Snap.
                 v.Magnetism.StopThreshold = 0              
                 v.Magnetism.MaxAngleHorizontal = 3.14      
                 v.Magnetism.MaxAngleVertical = 1.5
 
-                -- [C] FRICTION (The Sniper Fix)
+                -- [C] FRICTION (Precision)
                 v.Friction.Enabled = true
-                v.Friction.BubbleRadius = 10.0             -- REDUCED (Was 25.0). Prevents early wall shots.
-                v.Friction.MinSensitivity = 0.01           -- Zero resistance inside the bubble.
+                v.Friction.BubbleRadius = 10.0             -- Kept small to prevent wall shots.
+                v.Friction.MinSensitivity = 0.01           
                 
                 -- [D] NO RECOIL
                 v.RecoilAssist.Enabled = true
@@ -82,12 +79,10 @@ local function InjectGodMode()
             end
         end
 
-        -- STEP 2: Bypass Smoke Check (Safe Hook)
+        -- STEP 2: Bypass Smoke Check
         for i, v in pairs(getgc()) do
             if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
-                hookfunction(v, function()
-                    return false
-                end)
+                hookfunction(v, function() return false end)
             end
         end
     end)
@@ -154,7 +149,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "SNIPER GOD"
+Title.Text = "VELOCITY GOD"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -234,11 +229,11 @@ end
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local RageBtn = Btn("Inject Sniper Settings", 1, function() 
+local RageBtn = Btn("Inject Velocity Settings", 1, function() 
     local success = InjectGodMode()
     if success then return true else return false end
 end)
-RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Sniper Settings"
+RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Velocity Settings"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Sniper God Loaded")
+print("[Bloxstrike] Velocity God Loaded")
