@@ -1,42 +1,43 @@
--- BLOXSTRIKE STICKY SUITE
--- Features: Sticky Aim (Prevents Shaking), Hard Lock, True Icon UI
--- Fixes: Lock refuses to switch targets until the current one is dead.
+-- BLOXSTRIKE MICRO-LOCK SUITE
+-- Features: Tiny FOV, "Snap-to-Red" Logic, Sticky Target
+-- Logic: Aimbot stays asleep until an enemy touches your crosshair.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
     Aimbot_Enabled = true,
     
-    Aimbot_FOV = 100,        -- Circle size
-    Aimbot_Speed = 0.5,      -- 0.5 = VERY STRONG LOCK (Was 0.25)
+    Aimbot_FOV = 50,         -- TINY CIRCLE (Only locks when you look at them)
+    Aimbot_Speed = 0.4,      -- 0.4 = Fast Snap (Feels like a magnet)
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
 -- MEMORY
 local Highlights = {}
-local LockedTarget = nil -- The "Sticky" Variable
+local LockedTarget = nil 
 local RayParams = RaycastParams.new()
 RayParams.FilterType = Enum.RaycastFilterType.Exclude
 RayParams.IgnoreWater = true
 
--- VISUAL FOV CIRCLE
+-- VISUAL FOV CIRCLE (So you see where to aim)
 local FovCircle = Drawing.new("Circle")
 FovCircle.Visible = true
 FovCircle.Radius = Config.Aimbot_FOV
-FovCircle.Color = Color3.fromRGB(255, 255, 255)
+FovCircle.Color = Color3.fromRGB(0, 255, 0) -- Green Circle = "Safe Zone"
 FovCircle.Thickness = 1.5
-FovCircle.Transparency = 0.5
+FovCircle.Transparency = 0.8
 FovCircle.Filled = false
 FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
 -- -------------------------------------------------------------------------
--- 1. UI SYSTEM
+-- 1. UI SYSTEM (Floating Icon)
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -75,11 +76,11 @@ IconButton.InputBegan:Connect(function(input)
     end
 end)
 IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
-game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
+UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 -- [B] MAIN MENU
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 180)
+MainFrame.Size = UDim2.new(0, 220, 0, 150) -- Compact Menu
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -96,7 +97,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "BLOXSTRIKE"
+Title.Text = "MICRO-LOCK"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -121,14 +122,13 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 2. CORE LOGIC
+-- 2. LOGIC
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
     local myTeam = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
     local theirTeam = tostring(player:GetAttribute("Team") or "Nil")
-    if myTeam == theirTeam then return false end
-    return true
+    return myTeam ~= theirTeam
 end
 
 local function IsVisible(targetPart)
@@ -146,12 +146,11 @@ local function IsVisible(targetPart)
 end
 
 -- -------------------------------------------------------------------------
--- 3. STICKY TARGET LOGIC
+-- 3. THE "SNAP-TO-RED" LOOP
 -- -------------------------------------------------------------------------
-local function GetNewTarget()
+local function GetTargetInCircle()
     local closest, maxDist = nil, Config.Aimbot_FOV
     
-    -- Update FOV Circle
     FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     FovCircle.Visible = Config.Aimbot_Enabled
     
@@ -162,6 +161,7 @@ local function GetNewTarget()
                 local head = char.Head
                 local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
+                    -- STRICT FOV CHECK
                     local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
                     if dist < maxDist and IsVisible(head) then
                         maxDist = dist
@@ -175,37 +175,30 @@ local function GetNewTarget()
 end
 
 RunService.RenderStepped:Connect(function()
-    -- AIMBOT LOGIC
+    -- AIMBOT (Logic: Sleep -> Wake Up -> Lock)
     if Config.Aimbot_Enabled then
         
-        -- 1. Check if we still have a valid Locked Target
+        -- 1. If we have a target, check if we should keep it
         if LockedTarget then
             local char = LockedTarget.Parent
             local hum = char and char:FindFirstChild("Humanoid")
+            local vec, onScreen = Camera:WorldToViewportPoint(LockedTarget.Position)
+            local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
             
-            -- CONDITIONS TO LOSE TARGET:
-            -- Dead, Null, or Behind Wall
-            if not char or not LockedTarget.Parent or (hum and hum.Health <= 0) or not IsVisible(LockedTarget) then
-                LockedTarget = nil -- Reset target
-            else
-                -- Target is valid! Check FOV
-                local vec, onScreen = Camera:WorldToViewportPoint(LockedTarget.Position)
-                local dist = (Vector2.new(vec.X, vec.Y) - FovCircle.Position).Magnitude
-                if not onScreen or dist > Config.Aimbot_FOV then
-                    LockedTarget = nil -- Target left the circle
-                end
+            -- BREAK LOCK IF: Dead, Hidden, or Too Far from Crosshair (User stopped aiming)
+            if not char or (hum and hum.Health <= 0) or not IsVisible(LockedTarget) or dist > (Config.Aimbot_FOV * 1.5) then
+                LockedTarget = nil 
             end
         end
         
-        -- 2. If no target, find a new one
+        -- 2. If no target, scan the small circle
         if not LockedTarget then
-            LockedTarget = GetNewTarget()
+            LockedTarget = GetTargetInCircle()
         end
         
-        -- 3. AIM AT TARGET
+        -- 3. SNAP
         if LockedTarget then
             local current = Camera.CFrame
-            -- Direct Head Aim (No Offset = Harder Lock)
             local goal = CFrame.new(current.Position, LockedTarget.Position)
             Camera.CFrame = current:Lerp(goal, Config.Aimbot_Speed)
         end
@@ -214,7 +207,7 @@ RunService.RenderStepped:Connect(function()
         LockedTarget = nil
     end
 
-    -- ESP LOGIC
+    -- ESP (Visuals)
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
@@ -259,8 +252,8 @@ end
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local AimBtn = Btn("Sticky Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
-AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Sticky Aimbot: ON"
+local AimBtn = Btn("Micro-Lock Aimbot", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
+AimBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); AimBtn.Text = "Micro-Lock Aimbot: ON"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Sticky Suite Loaded")
+print("[Bloxstrike] Micro-Lock Loaded")
