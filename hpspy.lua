@@ -1,23 +1,21 @@
--- BLOXSTRIKE TRUE ICON SUITE
--- Features: Full Body Highlight, Wall-Check Aimbot
--- Fixes: Minimize button now hides the menu completely and shows a movable Icon.
+-- BLOXSTRIKE FINAL MOBILE SUITE
+-- Features: True Floating Icon, Enemy-Only Aimbot, Highlight ESP
+-- Fixes: UI fully hides into an icon. Aimbot strictly ignores teammates.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local CoreGui = game:GetService("CoreGui")
 
--- SETTINGS
+-- CONFIGURATION
 local Config = {
-    ESP_Enabled = true,
-    Aimbot_Enabled = false,
-    Aimbot_FOV = 120,       
-    Aimbot_Smoothness = 0.2,
-    Team_Check = true,      
-    Enemy_Color = Color3.fromRGB(255, 0, 0), -- Red
-    Team_Color = Color3.fromRGB(0, 255, 0)   -- Green
+    ESP_Enabled = true,      -- Shows red outline on enemies
+    Aimbot_Enabled = false,  -- Locks camera on enemies
+    Hide_Teammates = true,   -- CRITICAL: Keeps aimbot/ESP off your team
+    Aimbot_FOV = 120,        -- Circle size (only aim near crosshair)
+    Aimbot_Smooth = 0.2,     -- 0.1 = Fast, 0.5 = Smooth
+    Enemy_Color = Color3.fromRGB(255, 0, 0) -- Red
 }
 
 -- MEMORY
@@ -27,19 +25,19 @@ RayParams.FilterType = Enum.RaycastFilterType.Exclude
 RayParams.IgnoreWater = true
 
 -- -------------------------------------------------------------------------
--- 1. UI SYSTEM (Menu + Floating Icon)
+-- 1. UI SYSTEM (True Icon Mode)
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
 
--- == THE FLOATING ICON ==
+-- [A] THE FLOATING ICON (Hidden at start)
 local IconFrame = Instance.new("Frame")
-IconFrame.Size = UDim2.new(0, 50, 0, 50)
-IconFrame.Position = UDim2.new(0.9, 0, 0.4, 0) -- Right side of screen
+IconFrame.Size = UDim2.new(0, 45, 0, 45)
+IconFrame.Position = UDim2.new(0.9, -50, 0.4, 0) -- Right side
 IconFrame.BackgroundTransparency = 1
-IconFrame.Visible = false -- Hidden by default (Menu starts open)
+IconFrame.Visible = false 
 IconFrame.Active = true
-IconFrame.Draggable = true -- The icon moves!
+IconFrame.Draggable = true -- You can move this icon!
 IconFrame.Parent = ScreenGui
 
 local IconButton = Instance.new("TextButton")
@@ -48,23 +46,21 @@ IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 IconButton.Text = "B"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
-IconButton.TextSize = 28
+IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 
--- Make Icon Circular
 local IconCorner = Instance.new("UICorner")
-IconCorner.CornerRadius = UDim.new(1, 0)
+IconCorner.CornerRadius = UDim.new(1, 0) -- Circle shape
 IconCorner.Parent = IconButton
 
--- == THE MAIN MENU ==
+-- [B] THE MAIN MENU (Visible at start)
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 190)
+MainFrame.Size = UDim2.new(0, 220, 0, 200)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
-MainFrame.Visible = true -- Menu starts visible
 MainFrame.Parent = ScreenGui
 
 local TitleBar = Instance.new("Frame")
@@ -83,7 +79,7 @@ Title.TextSize = 16
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = TitleBar
 
--- Minimize Button (On Menu)
+-- Minimize Button (The "_" button)
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 30, 0, 30)
 MinBtn.Position = UDim2.new(1, -30, 0, 0)
@@ -93,17 +89,6 @@ MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 MinBtn.Font = Enum.Font.SourceSansBold
 MinBtn.TextSize = 20
 MinBtn.Parent = TitleBar
-
--- TOGGLE LOGIC
-MinBtn.MouseButton1Click:Connect(function()
-    MainFrame.Visible = false  -- Hide Menu
-    IconFrame.Visible = true   -- Show Icon
-end)
-
-IconButton.MouseButton1Click:Connect(function()
-    IconFrame.Visible = false  -- Hide Icon
-    MainFrame.Visible = true   -- Show Menu
-end)
 
 -- BUTTON CREATOR
 local ContentFrame = Instance.new("Frame")
@@ -116,11 +101,9 @@ local function CreateButton(name, order, click_func)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.9, 0, 0, 35)
     btn.Position = UDim2.new(0.05, 0, 0, 10 + (order * 40))
-    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
     btn.Text = name
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.SourceSans
-    btn.TextSize = 14
     btn.Parent = ContentFrame
     
     local corner = Instance.new("UICorner")
@@ -130,34 +113,55 @@ local function CreateButton(name, order, click_func)
     btn.MouseButton1Click:Connect(function()
         local newState = click_func()
         btn.Text = name .. ": " .. (newState and "ON" or "OFF")
-        btn.BackgroundColor3 = newState and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(45, 45, 45)
+        btn.BackgroundColor3 = newState and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(50, 50, 50)
     end)
+    return btn
 end
 
 -- -------------------------------------------------------------------------
--- 2. TEAM LOGIC (The Fix)
+-- 2. UI LOGIC (Switching between Icon and Menu)
 -- -------------------------------------------------------------------------
-local function IsTeammate(player)
-    if not Config.Team_Check then return false end
-    if player == LocalPlayer then return true end
+MinBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false  -- Completely hide menu
+    IconFrame.Visible = true   -- Show small icon
+end)
+
+IconButton.MouseButton1Click:Connect(function()
+    IconFrame.Visible = false  -- Hide icon
+    MainFrame.Visible = true   -- Show menu
+end)
+
+-- -------------------------------------------------------------------------
+-- 3. TEAM CHECK (Aggressive)
+-- -------------------------------------------------------------------------
+local function IsEnemy(player)
+    -- 1. If Hide Teammates is OFF, everyone is an enemy (FFA Mode)
+    if not Config.Hide_Teammates then return true end
     
+    if player == LocalPlayer then return false end -- Never target self
+    
+    -- 2. Check Bloxstrike Attributes (Terrorists vs Counter-Terrorists)
+    -- Source: CreateWeaponModel.lua 
     local myTeam = LocalPlayer:GetAttribute("Team")
     local theirTeam = player:GetAttribute("Team")
     
     if myTeam and theirTeam then
-        return myTeam == theirTeam
-    end
-    
-    -- Fallback: Use color check if attributes fail
-    if player.TeamColor == LocalPlayer.TeamColor then
+        -- If teams match, they are NOT an enemy.
+        if myTeam == theirTeam then return false end
+        -- If teams differ, they ARE an enemy.
         return true
     end
     
-    return false 
+    -- 3. Fallback: Standard Roblox Teams
+    if player.TeamColor == LocalPlayer.TeamColor then
+        return false -- Same color = Teammate
+    end
+    
+    return true -- If we can't tell, assume Enemy (Safety)
 end
 
 -- -------------------------------------------------------------------------
--- 3. VISIBILITY CHECK (Wall Check)
+-- 4. VISIBILITY CHECK (Wall Check)
 -- -------------------------------------------------------------------------
 local function IsVisible(targetPart)
     local Origin = Camera.CFrame.Position
@@ -165,86 +169,100 @@ local function IsVisible(targetPart)
     RayParams.FilterDescendantsInstances = {LocalPlayer.Character}
     
     local Result = workspace:Raycast(Origin, Direction, RayParams)
+    
+    -- If ray hits something, check if it's the enemy character
     if Result and Result.Instance:IsDescendantOf(targetPart.Parent) then
         return true
     end
-    return Result == nil
+    return Result == nil -- If ray hits nothing, path is clear
 end
 
 -- -------------------------------------------------------------------------
--- 4. ESP (Highlight)
+-- 5. AIMBOT & ESP LOOP
 -- -------------------------------------------------------------------------
-local function UpdateESP()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local char = player.Character
-            
-            if not Config.ESP_Enabled or not char or IsTeammate(player) then
-                if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
-                continue
-            end
-            
-            if not Highlights[player] or Highlights[player].Parent ~= char then
-                local hl = Instance.new("Highlight")
-                hl.FillTransparency = 0.5
-                hl.OutlineTransparency = 0
-                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                hl.FillColor = Config.Enemy_Color
-                hl.OutlineColor = Config.Enemy_Color
-                hl.Parent = char
-                Highlights[player] = hl
-            end
-        end
-    end
-end
-
--- -------------------------------------------------------------------------
--- 5. AIMBOT
--- -------------------------------------------------------------------------
-local function GetBestTarget()
-    local closest = nil
+local function Update()
+    local bestTarget = nil
     local maxDist = Config.Aimbot_FOV
     
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and not IsTeammate(player) then
+        if player ~= LocalPlayer then
             local char = player.Character
-            if char and char:FindFirstChild("Head") then
+            local isEnemy = IsEnemy(player)
+            
+            -- [ESP LOGIC]
+            if Config.ESP_Enabled and char and isEnemy then
+                if not Highlights[player] or Highlights[player].Parent ~= char then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "EnemyGlow"
+                    hl.FillColor = Config.Enemy_Color
+                    hl.OutlineColor = Config.Enemy_Color
+                    hl.FillTransparency = 0.5
+                    hl.OutlineTransparency = 0
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = char
+                    Highlights[player] = hl
+                end
+            else
+                -- Remove ESP if they are a teammate or ESP is off
+                if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
+            end
+            
+            -- [AIMBOT LOGIC]
+            if Config.Aimbot_Enabled and isEnemy and char and char:FindFirstChild("Head") then
                 local head = char.Head
                 local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
                 
                 if onScreen then
+                    -- Check distance from crosshair
                     local dist = (Vector2.new(vector.X, vector.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    
                     if dist < maxDist then
+                        -- Check if behind wall
                         if IsVisible(head) then
                             maxDist = dist
-                            closest = head
+                            bestTarget = head
                         end
                     end
                 end
             end
         end
     end
-    return closest
+    
+    -- Apply Aim
+    if bestTarget then
+        local current = Camera.CFrame
+        local goal = CFrame.new(current.Position, bestTarget.Position)
+        Camera.CFrame = current:Lerp(goal, Config.Aimbot_Smooth)
+    end
 end
 
-RunService.RenderStepped:Connect(function()
-    UpdateESP()
-    
-    if Config.Aimbot_Enabled then
-        local target = GetBestTarget()
-        if target then
-            local current = Camera.CFrame
-            local goal = CFrame.new(current.Position, target.Position)
-            Camera.CFrame = current:Lerp(goal, Config.Aimbot_Smoothness)
-        end
-    end
+RunService.RenderStepped:Connect(Update)
+
+-- -------------------------------------------------------------------------
+-- 6. BUTTON SETUP
+-- -------------------------------------------------------------------------
+-- Button 1: ESP
+CreateButton("Full Body ESP", 0, function() 
+    Config.ESP_Enabled = not Config.ESP_Enabled 
+    return Config.ESP_Enabled 
 end)
 
--- SETUP BUTTONS
-CreateButton("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
-CreateButton("Aimbot (Safe)", 1, function() Config.Aimbot_Enabled = not Config.Aimbot_Enabled; return Config.Aimbot_Enabled end)
-CreateButton("Team Check", 2, function() Config.Team_Check = not Config.Team_Check; return Config.Team_Check end)
+-- Button 2: Aimbot
+CreateButton("Aimbot (Safe)", 1, function() 
+    Config.Aimbot_Enabled = not Config.Aimbot_Enabled 
+    return Config.Aimbot_Enabled 
+end)
 
+-- Button 3: Hide Teammates (Defaults to ON)
+local TeamBtn = CreateButton("Hide Teammates", 2, function() 
+    Config.Hide_Teammates = not Config.Hide_Teammates 
+    return Config.Hide_Teammates 
+end)
+-- Force update the button text to show it starts as ON
+TeamBtn.Text = "Hide Teammates: ON"
+TeamBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+
+-- Cleanup
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
 
-print("[Bloxstrike] Icon Suite Loaded")
+print("[Bloxstrike] Final Suite Loaded")
