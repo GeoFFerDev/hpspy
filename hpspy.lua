@@ -1,6 +1,6 @@
--- BLOXSTRIKE VELOCITY GOD v9 (FLUID LOCK)
--- Fixes: Aim sticking to Torso while running/jumping.
--- Logic: Reduced Friction "Stickiness" to allow Magnet to slide aim to the Head.
+-- BLOXSTRIKE VELOCITY GOD v10 (HEAD PRIORITY)
+-- Fixes: Aim locking to Torso during movement/swiping.
+-- Logic: High Friction Sensitivity allows crosshair to slide past torso, forcing Magnet to snap only to Head.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -63,7 +63,7 @@ local function EnforceGodSettings()
                 end
 
                 if Config.Aimbot then
-                    -- UPDATE LOOP (Checks for value drift)
+                    -- UPDATE LOOP
                     if v.Magnetism.PullStrength ~= 8.5 then 
                         
                         -- [A] TARGETING
@@ -73,17 +73,17 @@ local function EnforceGodSettings()
                         -- [B] MAGNETISM (HEAD SNAP)
                         v.Magnetism.Enabled = true
                         v.Magnetism.MaxDistance = 5000
-                        v.Magnetism.PullStrength = 8.5             -- BOOSTED (Was 7.0). Strong snap for fast targets.
+                        v.Magnetism.PullStrength = 8.5             -- MAX STRENGTH
                         v.Magnetism.StopThreshold = 0              
                         v.Magnetism.MaxAngleHorizontal = 3.14      
-                        v.Magnetism.MaxAngleVertical = 4.0         -- MAX (4.0). Allows full vertical tracking while jumping.
+                        v.Magnetism.MaxAngleVertical = 4.0         
 
-                        -- [C] FRICTION (FLUIDITY FIX)
+                        -- [C] FRICTION (TORSO REJECTION)
                         v.Friction.Enabled = true
-                        v.Friction.BubbleRadius = 11.0             -- EXPANDED SLIGHTLY (11.0). Catches fast movers easier.
-                        v.Friction.MinSensitivity = 0.2            -- LOOSENED (Was 0.001). Allows aim to slide UP to the head instead of getting stuck on torso.
+                        v.Friction.BubbleRadius = 9.5              -- PRECISE BUBBLE (9.5).
+                        v.Friction.MinSensitivity = 0.8            -- HIGH SENSITIVITY (0.8). Makes aim SLIP off the torso so it can snap to the head.
                         
-                        -- [D] NO RECOIL (STABLE)
+                        -- [D] NO RECOIL
                         v.RecoilAssist.Enabled = true
                         v.RecoilAssist.ReductionAmount = 1.0
                         v.RecoilAssist.RequiresTarget = false
@@ -136,7 +136,7 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "V9"
+IconButton.Text = "V10"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
@@ -178,7 +178,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY V9 (FLUID)"
+Title.Text = "VELOCITY V10 (HEAD ONLY)"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -296,4 +296,4 @@ RunService.RenderStepped:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God v9 Loaded")
+print("[Bloxstrike] Velocity God v10 Loaded")
