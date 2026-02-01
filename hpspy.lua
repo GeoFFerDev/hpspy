@@ -1,6 +1,6 @@
--- BLOXSTRIKE VELOCITY GOD v7 (ACTIVE LOOP)
--- Fixes: Weapon Switch Reset, Head Overshoot, Torso Lock.
--- Logic: Actively enforces settings every frame to prevent game resets.
+-- BLOXSTRIKE VELOCITY GOD v8 (MOTION FIX)
+-- Fixes: Aiming at Torso while running.
+-- Logic: Forces Recoil/Spread stability globally (not just on lock) and widens vertical capture.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -39,11 +39,9 @@ local function BoostFPS()
 end
 
 -- -------------------------------------------------------------------------
--- 2. ACTIVE AIMBOT ENFORCER (The Fix)
+-- 2. ACTIVE AIMBOT ENFORCER
 -- -------------------------------------------------------------------------
--- This runs every frame to ensure settings stick even after weapon swaps
 local function EnforceGodSettings()
-    -- We use pcall to prevent crashes, but efficiently
     pcall(function()
         for i, v in pairs(getgc(true)) do
             if type(v) == "table" 
@@ -58,37 +56,39 @@ local function EnforceGodSettings()
                         FricRad = v.Friction.BubbleRadius,
                         Recoil = v.RecoilAssist.ReductionAmount,
                         TargetDist = v.TargetSelection.MaxDistance,
-                        VertAngle = v.Magnetism.MaxAngleVertical
+                        VertAngle = v.Magnetism.MaxAngleVertical,
+                        RecoilReq = v.RecoilAssist.RequiresTarget
                     }
                 end
 
                 if Config.Aimbot then
-                    -- ONLY Write if values are wrong (Optimization)
-                    if v.Magnetism.PullStrength ~= 6.0 then 
+                    -- Optimization: Only write if values differ
+                    if v.Magnetism.PullStrength ~= 7.0 then 
                         
                         -- [A] TARGETING
                         v.TargetSelection.MaxDistance = 5000       
                         v.TargetSelection.MaxAngle = 3.14          
 
-                        -- [B] MAGNETISM (TUNED FOR HEAD)
+                        -- [B] MAGNETISM (MOTION TUNED)
                         v.Magnetism.Enabled = true
                         v.Magnetism.MaxDistance = 5000
-                        v.Magnetism.PullStrength = 6.0             -- REDUCED (Was 8.0) to stop overshooting.
+                        v.Magnetism.PullStrength = 7.0             -- BALANCED (7.0). Strong enough to fight camera bob, weak enough to stay on head.
                         v.Magnetism.StopThreshold = 0              
                         v.Magnetism.MaxAngleHorizontal = 3.14      
-                        v.Magnetism.MaxAngleVertical = 2.5         -- CLAMPED (Was 4.0). Keeps aim focused.
+                        v.Magnetism.MaxAngleVertical = 3.0         -- WIDENED (3.0). Allows pulling UP to head even if camera bobs down.
 
-                        -- [C] FRICTION (PRECISION)
+                        -- [C] FRICTION
                         v.Friction.Enabled = true
-                        v.Friction.BubbleRadius = 9.0              -- TIGHTER (Was 12.0). Forces head snap, ignores torso drift.
+                        v.Friction.BubbleRadius = 10.0             -- SAFE ZONE (10.0). Prevents wall shots but catches head.
                         v.Friction.MinSensitivity = 0.001          
                         
-                        -- [D] NO RECOIL
+                        -- [D] NO RECOIL (ALWAYS STABLE)
                         v.RecoilAssist.Enabled = true
                         v.RecoilAssist.ReductionAmount = 1.0
+                        v.RecoilAssist.RequiresTarget = false      -- CRITICAL: Forces 0 recoil even when NOT locked on. Stabilizes running aim.
                     end
                 elseif OriginalSettings.Magnetism then
-                    -- Restore defaults if Aimbot is OFF
+                    -- Restore defaults
                     if v.Magnetism.PullStrength ~= OriginalSettings.Pull then
                         v.Magnetism.MaxDistance = OriginalSettings.MagDist
                         v.Magnetism.PullStrength = OriginalSettings.Pull
@@ -96,6 +96,7 @@ local function EnforceGodSettings()
                         v.RecoilAssist.ReductionAmount = OriginalSettings.Recoil
                         v.TargetSelection.MaxDistance = OriginalSettings.TargetDist
                         v.Magnetism.MaxAngleVertical = OriginalSettings.VertAngle
+                        v.RecoilAssist.RequiresTarget = OriginalSettings.RecoilReq
                     end
                 end
             end
@@ -133,7 +134,7 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "V7"
+IconButton.Text = "V8"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
@@ -175,7 +176,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY V7 (LOOP)"
+Title.Text = "VELOCITY V8 (MOTION)"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -236,7 +237,7 @@ CreateSwitch("Full Body ESP", 0, function()
     return Config.ESP 
 end)
 
--- [2] AIMBOT (Enables the Loop)
+-- [2] AIMBOT
 CreateSwitch("Active Aimbot", 1, function()
     Config.Aimbot = not Config.Aimbot
     if Config.Aimbot then InjectSmokeBypass() end
@@ -259,7 +260,7 @@ FPSBtn.MouseButton1Click:Connect(function()
 end)
 
 -- -------------------------------------------------------------------------
--- 5. LOOPS (The Engine)
+-- 5. LOOPS
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -269,7 +270,7 @@ local function IsEnemy(player)
 end
 
 RunService.RenderStepped:Connect(function()
-    -- 1. Enforce Aimbot Settings (Every Frame)
+    -- 1. Enforce Aimbot Settings
     EnforceGodSettings()
 
     -- 2. Update ESP
@@ -295,4 +296,4 @@ RunService.RenderStepped:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God v7 (Active Loop) Loaded")
+print("[Bloxstrike] Velocity God v8 Loaded")
