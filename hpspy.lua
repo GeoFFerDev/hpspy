@@ -1,6 +1,6 @@
--- BLOXSTRIKE VELOCITY GOD v5 (PERFORMANCE)
--- Features: Optimized Aimbot, 0% Recoil, ESP, FPS Booster.
--- Changelog: Removed laggy pcalls. Removed unsafe Silent Steps. Added GFX Tuner.
+-- BLOXSTRIKE VELOCITY GOD v6 (ELEVATION FIX)
+-- Features: Vertical Aim Fix, Optimized Locking, 0% Recoil, ESP, FPS Booster.
+-- Changelog: Unlocked Vertical Angles (Fixes high/low ground aiming). Boosted Magnetism.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,15 +22,13 @@ local OriginalSettings = {}
 local Hooks = { SmokeCheck = nil }
 
 -- -------------------------------------------------------------------------
--- 1. FPS BOOSTER (New Feature)
+-- 1. FPS BOOSTER
 -- -------------------------------------------------------------------------
 local function BoostFPS()
-    -- 1. Disable Heavy Lighting
     Lighting.GlobalShadows = false
     Lighting.FogEnd = 9e9
     Lighting.Brightness = 2
     
-    -- 2. Delete Textures (Makes game look flat but runs fast)
     for _, v in pairs(game:GetDescendants()) do
         if v:IsA("Texture") or v:IsA("Decal") or v:IsA("ParticleEmitter") then
             v:Destroy()
@@ -46,7 +44,6 @@ end
 -- 2. VELOCITY AIMBOT (Memory Editor)
 -- -------------------------------------------------------------------------
 local function ToggleAimbot(state)
-    -- We only use pcall here (once per click), not in the loop
     pcall(function()
         -- 1. Find the Master Settings Table
         for i, v in pairs(getgc(true)) do
@@ -61,7 +58,8 @@ local function ToggleAimbot(state)
                         Pull = v.Magnetism.PullStrength,
                         FricRad = v.Friction.BubbleRadius,
                         Recoil = v.RecoilAssist.ReductionAmount,
-                        TargetDist = v.TargetSelection.MaxDistance
+                        TargetDist = v.TargetSelection.MaxDistance,
+                        VertAngle = v.Magnetism.MaxAngleVertical
                     }
                 end
 
@@ -70,17 +68,17 @@ local function ToggleAimbot(state)
                     v.TargetSelection.MaxDistance = 5000       
                     v.TargetSelection.MaxAngle = 3.14          
 
-                    -- Magnetism (Instant Snap)
+                    -- Magnetism (Elevation Fixed)
                     v.Magnetism.Enabled = true
                     v.Magnetism.MaxDistance = 5000
-                    v.Magnetism.PullStrength = 5.0             
+                    v.Magnetism.PullStrength = 8.0             -- BOOSTED (Was 5.0) for stronger vertical pull
                     v.Magnetism.StopThreshold = 0              
-                    v.Magnetism.MaxAngleHorizontal = 3.14      
-                    v.Magnetism.MaxAngleVertical = 1.5
+                    v.Magnetism.MaxAngleHorizontal = 3.14      -- 180 degrees Horizontal
+                    v.Magnetism.MaxAngleVertical = 4.0         -- FIXED: Unlocked Vertical (Was 1.5). Allows 90°+ aiming.
 
-                    -- Friction (Sniper Safe)
+                    -- Friction (Sticky)
                     v.Friction.Enabled = true
-                    v.Friction.BubbleRadius = 10.0             
+                    v.Friction.BubbleRadius = 12.0             -- Slightly larger to catch fast vertical movers
                     v.Friction.MinSensitivity = 0.001          
                     
                     -- No Recoil
@@ -94,6 +92,7 @@ local function ToggleAimbot(state)
                         v.Friction.BubbleRadius = OriginalSettings.FricRad
                         v.RecoilAssist.ReductionAmount = OriginalSettings.Recoil
                         v.TargetSelection.MaxDistance = OriginalSettings.TargetDist
+                        v.Magnetism.MaxAngleVertical = OriginalSettings.VertAngle
                     end
                 end
             end
@@ -130,14 +129,14 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "V5"
+IconButton.Text = "V6"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- Optimized Dragging
+-- Dragging Logic
 local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
@@ -155,7 +154,7 @@ IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.U
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 190) -- Compact
+MainFrame.Size = UDim2.new(0, 220, 0, 190)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -172,7 +171,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY V5 (FPS)"
+Title.Text = "VELOCITY V6 (ELEVATION)"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -208,7 +207,7 @@ local function CreateSwitch(name, order, callback)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(0.9, 0, 0, 35)
     b.Position = UDim2.new(0.05, 0, 0, 10 + (order * 40))
-    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45) -- Default Grey
+    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
     b.Text = name .. ": OFF"
     b.TextColor3 = Color3.fromRGB(255, 255, 255)
     b.Parent = Content
@@ -218,10 +217,10 @@ local function CreateSwitch(name, order, callback)
         local newState = callback()
         if newState then
             b.Text = name .. ": ON"
-            b.BackgroundColor3 = Color3.fromRGB(0, 180, 0) -- Green
+            b.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
         else
             b.Text = name .. ": OFF"
-            b.BackgroundColor3 = Color3.fromRGB(45, 45, 45) -- Grey
+            b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
         end
     end)
     return b
@@ -240,12 +239,12 @@ CreateSwitch("Velocity Aimbot", 1, function()
     return Config.Aimbot
 end)
 
--- [3] FPS BOOST (One-time click)
+-- [3] FPS BOOST
 local FPSBtn = Instance.new("TextButton")
 FPSBtn.Size = UDim2.new(0.9, 0, 0, 35)
 FPSBtn.Position = UDim2.new(0.05, 0, 0, 10 + (2 * 40))
-FPSBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200) -- Blue
-FPSBtn.Text = "Boost FPS (Low GFX)"
+FPSBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+FPSBtn.Text = "Boost FPS"
 FPSBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 FPSBtn.Parent = Content
 Instance.new("UICorner", FPSBtn).CornerRadius = UDim.new(0, 6)
@@ -256,7 +255,7 @@ FPSBtn.MouseButton1Click:Connect(function()
 end)
 
 -- -------------------------------------------------------------------------
--- 5. OPTIMIZED VISUALS LOOP
+-- 5. VISUALS LOOP
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -265,7 +264,6 @@ local function IsEnemy(player)
     return myTeam ~= theirTeam
 end
 
--- Removed 'pcall' from the loop to restore FPS
 RunService.RenderStepped:Connect(function()
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -289,4 +287,4 @@ RunService.RenderStepped:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God v5 Loaded")
+print("[Bloxstrike] Velocity God v6 Loaded")
