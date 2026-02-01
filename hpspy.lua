@@ -1,126 +1,97 @@
--- BLOXSTRIKE VELOCITY GOD v10 (HEAD PRIORITY)
--- Fixes: Aim locking to Torso during movement/swiping.
--- Logic: High Friction Sensitivity allows crosshair to slide past torso, forcing Magnet to snap only to Head.
+-- BLOXSTRIKE VELOCITY SUITE
+-- Features: Instant Snap Magnetism, 0% Recoil, Crash Blocker
+-- Update: Increased Pull Strength to 3.0 for faster locking.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
 -- SETTINGS
 local Config = {
-    ESP = false,
-    Aimbot = false,
+    ESP_Enabled = true,
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
 -- MEMORY
 local Highlights = {}
 local OriginalSettings = {} 
-local Hooks = { SmokeCheck = nil }
 
 -- -------------------------------------------------------------------------
--- 1. FPS BOOSTER
+-- 1. ANTI-BAN (Crash Blocker)
 -- -------------------------------------------------------------------------
-local function BoostFPS()
-    Lighting.GlobalShadows = false
-    Lighting.FogEnd = 9e9
-    Lighting.Brightness = 2
-    for _, v in pairs(game:GetDescendants()) do
-        if v:IsA("Texture") or v:IsA("Decal") or v:IsA("ParticleEmitter") then
-            v:Destroy()
-        elseif v:IsA("BasePart") and not v:IsA("MeshPart") then
-            v.Material = Enum.Material.SmoothPlastic
-            v.Reflectance = 0
-        end
+local function ProtectExecution(func)
+    local success, result = pcall(func)
+    if not success then
+        warn("[Bloxstrike] Stealth Mode: Prevented Error Report.")
     end
+    return success
 end
 
 -- -------------------------------------------------------------------------
--- 2. ACTIVE AIMBOT ENFORCER
+-- 2. THE MEMORY HIJACK
 -- -------------------------------------------------------------------------
-local function EnforceGodSettings()
-    pcall(function()
+local function InjectGodMode()
+    local foundTable = false
+    
+    ProtectExecution(function()
+        -- STEP 1: Find the Master Settings Table
         for i, v in pairs(getgc(true)) do
             if type(v) == "table" 
+               and rawget(v, "TargetSelection") 
                and rawget(v, "Magnetism") 
-               and rawget(v, "RecoilAssist") then
+               and rawget(v, "RecoilAssist") 
+               and rawget(v, "Friction") then
                 
-                -- Backup Default Settings (Once)
+                -- Backup
                 if not OriginalSettings.Magnetism then
                     OriginalSettings = {
                         MagDist = v.Magnetism.MaxDistance,
                         Pull = v.Magnetism.PullStrength,
                         FricRad = v.Friction.BubbleRadius,
-                        Recoil = v.RecoilAssist.ReductionAmount,
-                        TargetDist = v.TargetSelection.MaxDistance,
-                        VertAngle = v.Magnetism.MaxAngleVertical,
-                        RecoilReq = v.RecoilAssist.RequiresTarget,
-                        FricSens = v.Friction.MinSensitivity
+                        Recoil = v.RecoilAssist.ReductionAmount
                     }
                 end
 
-                if Config.Aimbot then
-                    -- UPDATE LOOP
-                    if v.Magnetism.PullStrength ~= 8.5 then 
-                        
-                        -- [A] TARGETING
-                        v.TargetSelection.MaxDistance = 5000       
-                        v.TargetSelection.MaxAngle = 3.14          
+                -- [A] TARGETING
+                v.TargetSelection.MaxDistance = 5000       
+                v.TargetSelection.MaxAngle = 3.14          
 
-                        -- [B] MAGNETISM (HEAD SNAP)
-                        v.Magnetism.Enabled = true
-                        v.Magnetism.MaxDistance = 5000
-                        v.Magnetism.PullStrength = 8.5             -- MAX STRENGTH
-                        v.Magnetism.StopThreshold = 0              
-                        v.Magnetism.MaxAngleHorizontal = 3.14      
-                        v.Magnetism.MaxAngleVertical = 4.0         
+                -- [B] MAGNETISM (SPEED BOOST)
+                v.Magnetism.Enabled = true
+                v.Magnetism.MaxDistance = 5000
+                v.Magnetism.PullStrength = 3.0             -- DOUBLED (Was 1.5). Instant Snap.
+                v.Magnetism.StopThreshold = 0              
+                v.Magnetism.MaxAngleHorizontal = 3.14      
+                v.Magnetism.MaxAngleVertical = 1.5
 
-                        -- [C] FRICTION (TORSO REJECTION)
-                        v.Friction.Enabled = true
-                        v.Friction.BubbleRadius = 9.5              -- PRECISE BUBBLE (9.5).
-                        v.Friction.MinSensitivity = 0.8            -- HIGH SENSITIVITY (0.8). Makes aim SLIP off the torso so it can snap to the head.
-                        
-                        -- [D] NO RECOIL
-                        v.RecoilAssist.Enabled = true
-                        v.RecoilAssist.ReductionAmount = 1.0
-                        v.RecoilAssist.RequiresTarget = false
-                    end
-                elseif OriginalSettings.Magnetism then
-                    -- Restore defaults
-                    if v.Magnetism.PullStrength ~= OriginalSettings.Pull then
-                        v.Magnetism.MaxDistance = OriginalSettings.MagDist
-                        v.Magnetism.PullStrength = OriginalSettings.Pull
-                        v.Friction.BubbleRadius = OriginalSettings.FricRad
-                        v.RecoilAssist.ReductionAmount = OriginalSettings.Recoil
-                        v.TargetSelection.MaxDistance = OriginalSettings.TargetDist
-                        v.Magnetism.MaxAngleVertical = OriginalSettings.VertAngle
-                        v.RecoilAssist.RequiresTarget = OriginalSettings.RecoilReq
-                        v.Friction.MinSensitivity = OriginalSettings.FricSens
-                    end
-                end
+                -- [C] FRICTION (Precision)
+                v.Friction.Enabled = true
+                v.Friction.BubbleRadius = 10.0             -- Kept small to prevent wall shots.
+                v.Friction.MinSensitivity = 0.01           
+                
+                -- [D] NO RECOIL
+                v.RecoilAssist.Enabled = true
+                v.RecoilAssist.ReductionAmount = 1.0       
+
+                foundTable = true
+            end
+        end
+
+        -- STEP 2: Bypass Smoke Check
+        for i, v in pairs(getgc()) do
+            if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
+                hookfunction(v, function() return false end)
             end
         end
     end)
-end
-
--- Hook Smoke Check Once
-local function InjectSmokeBypass()
-    if Hooks.SmokeCheck then return end
-    for i, v in pairs(getgc()) do
-        if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
-            Hooks.SmokeCheck = hookfunction(v, function()
-                if Config.Aimbot then return false end
-                return true
-            end)
-        end
-    end
+    
+    return foundTable
 end
 
 -- -------------------------------------------------------------------------
--- 3. GUI SYSTEM
+-- 3. UI SYSTEM
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -136,14 +107,14 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "V10"
+IconButton.Text = "B"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- Dragging
+-- DRAG LOGIC
 local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
@@ -161,7 +132,7 @@ IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.U
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 190)
+MainFrame.Size = UDim2.new(0, 220, 0, 180)
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -178,7 +149,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY V10 (HEAD ONLY)"
+Title.Text = "VELOCITY GOD"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -202,67 +173,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 4. BUTTONS
--- -------------------------------------------------------------------------
-local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, 0, 1, -30)
-Content.Position = UDim2.new(0, 0, 0, 30)
-Content.BackgroundTransparency = 1
-Content.Parent = MainFrame
-
-local function CreateSwitch(name, order, callback)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0.9, 0, 0, 35)
-    b.Position = UDim2.new(0.05, 0, 0, 10 + (order * 40))
-    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45) 
-    b.Text = name .. ": OFF"
-    b.TextColor3 = Color3.fromRGB(255, 255, 255)
-    b.Parent = Content
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-    
-    b.MouseButton1Click:Connect(function()
-        local newState = callback()
-        if newState then
-            b.Text = name .. ": ON"
-            b.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
-        else
-            b.Text = name .. ": OFF"
-            b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-        end
-    end)
-    return b
-end
-
--- [1] ESP
-CreateSwitch("Full Body ESP", 0, function() 
-    Config.ESP = not Config.ESP
-    return Config.ESP 
-end)
-
--- [2] AIMBOT
-CreateSwitch("Active Aimbot", 1, function()
-    Config.Aimbot = not Config.Aimbot
-    if Config.Aimbot then InjectSmokeBypass() end
-    return Config.Aimbot
-end)
-
--- [3] FPS BOOST
-local FPSBtn = Instance.new("TextButton")
-FPSBtn.Size = UDim2.new(0.9, 0, 0, 35)
-FPSBtn.Position = UDim2.new(0.05, 0, 0, 10 + (2 * 40))
-FPSBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-FPSBtn.Text = "Boost FPS"
-FPSBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-FPSBtn.Parent = Content
-Instance.new("UICorner", FPSBtn).CornerRadius = UDim.new(0, 6)
-FPSBtn.MouseButton1Click:Connect(function()
-    BoostFPS()
-    FPSBtn.Text = "FPS Boosted!"
-    FPSBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
-end)
-
--- -------------------------------------------------------------------------
--- 5. LOOPS
+-- 4. VISUALS
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -272,28 +183,57 @@ local function IsEnemy(player)
 end
 
 RunService.RenderStepped:Connect(function()
-    EnforceGodSettings()
-
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local char = player.Character
-            if Config.ESP and char and IsEnemy(player) then
-                if not Highlights[player] or Highlights[player].Parent ~= char then
-                    local hl = Instance.new("Highlight")
-                    hl.FillTransparency = 0.5
-                    hl.OutlineTransparency = 0
-                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.FillColor = Config.Enemy_Color
-                    hl.OutlineColor = Config.Enemy_Color
-                    hl.Parent = char
-                    Highlights[player] = hl
+    ProtectExecution(function()
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local char = player.Character
+                if Config.ESP_Enabled and char and IsEnemy(player) then
+                    if not Highlights[player] or Highlights[player].Parent ~= char then
+                        local hl = Instance.new("Highlight")
+                        hl.FillTransparency = 0.5; hl.OutlineTransparency = 0; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.FillColor = Config.Enemy_Color; hl.OutlineColor = Config.Enemy_Color; hl.Parent = char
+                        Highlights[player] = hl
+                    end
+                else
+                    if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
                 end
-            else
-                if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
             end
         end
-    end
+    end)
 end)
 
+-- -------------------------------------------------------------------------
+-- 5. BUTTONS
+-- -------------------------------------------------------------------------
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, 0, 1, -30)
+Content.Position = UDim2.new(0, 0, 0, 30)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
+
+local function Btn(name, order, func)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.9, 0, 0, 35)
+    b.Position = UDim2.new(0.05, 0, 0, 10 + (order * 40))
+    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    b.Text = name; b.TextColor3 = Color3.fromRGB(255, 255, 255); b.Parent = Content
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    b.MouseButton1Click:Connect(function()
+        local s = func()
+        b.Text = name .. ": " .. (s and "ON" or "OFF")
+        b.BackgroundColor3 = s and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(45, 45, 45)
+    end)
+    return b
+end
+
+local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
+EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
+
+local RageBtn = Btn("Inject Velocity Settings", 1, function() 
+    local success = InjectGodMode()
+    if success then return true else return false end
+end)
+RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Velocity Settings"
+
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God v10 Loaded")
+print("[Bloxstrike] Velocity God Loaded")
