@@ -1,6 +1,6 @@
--- BLOXSTRIKE VELOCITY GOD v8 (MOTION FIX)
--- Fixes: Aiming at Torso while running.
--- Logic: Forces Recoil/Spread stability globally (not just on lock) and widens vertical capture.
+-- BLOXSTRIKE VELOCITY GOD v9 (FLUID LOCK)
+-- Fixes: Aim sticking to Torso while running/jumping.
+-- Logic: Reduced Friction "Stickiness" to allow Magnet to slide aim to the Head.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -57,35 +57,36 @@ local function EnforceGodSettings()
                         Recoil = v.RecoilAssist.ReductionAmount,
                         TargetDist = v.TargetSelection.MaxDistance,
                         VertAngle = v.Magnetism.MaxAngleVertical,
-                        RecoilReq = v.RecoilAssist.RequiresTarget
+                        RecoilReq = v.RecoilAssist.RequiresTarget,
+                        FricSens = v.Friction.MinSensitivity
                     }
                 end
 
                 if Config.Aimbot then
-                    -- Optimization: Only write if values differ
-                    if v.Magnetism.PullStrength ~= 7.0 then 
+                    -- UPDATE LOOP (Checks for value drift)
+                    if v.Magnetism.PullStrength ~= 8.5 then 
                         
                         -- [A] TARGETING
                         v.TargetSelection.MaxDistance = 5000       
                         v.TargetSelection.MaxAngle = 3.14          
 
-                        -- [B] MAGNETISM (MOTION TUNED)
+                        -- [B] MAGNETISM (HEAD SNAP)
                         v.Magnetism.Enabled = true
                         v.Magnetism.MaxDistance = 5000
-                        v.Magnetism.PullStrength = 7.0             -- BALANCED (7.0). Strong enough to fight camera bob, weak enough to stay on head.
+                        v.Magnetism.PullStrength = 8.5             -- BOOSTED (Was 7.0). Strong snap for fast targets.
                         v.Magnetism.StopThreshold = 0              
                         v.Magnetism.MaxAngleHorizontal = 3.14      
-                        v.Magnetism.MaxAngleVertical = 3.0         -- WIDENED (3.0). Allows pulling UP to head even if camera bobs down.
+                        v.Magnetism.MaxAngleVertical = 4.0         -- MAX (4.0). Allows full vertical tracking while jumping.
 
-                        -- [C] FRICTION
+                        -- [C] FRICTION (FLUIDITY FIX)
                         v.Friction.Enabled = true
-                        v.Friction.BubbleRadius = 10.0             -- SAFE ZONE (10.0). Prevents wall shots but catches head.
-                        v.Friction.MinSensitivity = 0.001          
+                        v.Friction.BubbleRadius = 11.0             -- EXPANDED SLIGHTLY (11.0). Catches fast movers easier.
+                        v.Friction.MinSensitivity = 0.2            -- LOOSENED (Was 0.001). Allows aim to slide UP to the head instead of getting stuck on torso.
                         
-                        -- [D] NO RECOIL (ALWAYS STABLE)
+                        -- [D] NO RECOIL (STABLE)
                         v.RecoilAssist.Enabled = true
                         v.RecoilAssist.ReductionAmount = 1.0
-                        v.RecoilAssist.RequiresTarget = false      -- CRITICAL: Forces 0 recoil even when NOT locked on. Stabilizes running aim.
+                        v.RecoilAssist.RequiresTarget = false
                     end
                 elseif OriginalSettings.Magnetism then
                     -- Restore defaults
@@ -97,6 +98,7 @@ local function EnforceGodSettings()
                         v.TargetSelection.MaxDistance = OriginalSettings.TargetDist
                         v.Magnetism.MaxAngleVertical = OriginalSettings.VertAngle
                         v.RecoilAssist.RequiresTarget = OriginalSettings.RecoilReq
+                        v.Friction.MinSensitivity = OriginalSettings.FricSens
                     end
                 end
             end
@@ -134,7 +136,7 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "V8"
+IconButton.Text = "V9"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
@@ -176,7 +178,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY V8 (MOTION)"
+Title.Text = "VELOCITY V9 (FLUID)"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -270,10 +272,8 @@ local function IsEnemy(player)
 end
 
 RunService.RenderStepped:Connect(function()
-    -- 1. Enforce Aimbot Settings
     EnforceGodSettings()
 
-    -- 2. Update ESP
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
@@ -296,4 +296,4 @@ RunService.RenderStepped:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God v8 Loaded")
+print("[Bloxstrike] Velocity God v9 Loaded")
