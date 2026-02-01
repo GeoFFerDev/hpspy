@@ -1,6 +1,5 @@
--- BLOXSTRIKE VELOCITY SUITE
--- Features: Instant Snap Magnetism, 0% Recoil, Crash Blocker
--- Update: Increased Pull Strength to 3.0 for faster locking.
+-- BLOXSTRIKE VELOCITY SUITE [OVERHAULED]
+-- Features: Super-Snap Magnetism, 0% Recoil, Wall-Check Bypass
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,46 +29,39 @@ local function ProtectExecution(func)
 end
 
 -- -------------------------------------------------------------------------
--- 2. THE MEMORY HIJACK
+-- 2. THE OVERHAULED MEMORY HIJACK
 -- -------------------------------------------------------------------------
 local function InjectGodMode()
     local foundTable = false
     
     ProtectExecution(function()
-        -- STEP 1: Find the Master Settings Table
+        -- Search memory for the Master Settings Table
         for i, v in pairs(getgc(true)) do
             if type(v) == "table" 
                and rawget(v, "TargetSelection") 
                and rawget(v, "Magnetism") 
-               and rawget(v, "RecoilAssist") 
-               and rawget(v, "Friction") then
+               and rawget(v, "RecoilAssist") then
                 
-                -- Backup
-                if not OriginalSettings.Magnetism then
-                    OriginalSettings = {
-                        MagDist = v.Magnetism.MaxDistance,
-                        Pull = v.Magnetism.PullStrength,
-                        FricRad = v.Friction.BubbleRadius,
-                        Recoil = v.RecoilAssist.ReductionAmount
-                    }
-                end
+                -- [A] TARGET SELECTION (Lock-on Range & Field of View)
+                v.TargetSelection.MaxDistance = 9999        
+                v.TargetSelection.MaxAngle = 6.28 -- 360 degree snap
+                
+                -- NEW: Bypass Wall Checks (if keys exist in this game version)
+                if v.TargetSelection.CheckWalls ~= nil then v.TargetSelection.CheckWalls = false end
+                if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
 
-                -- [A] TARGETING
-                v.TargetSelection.MaxDistance = 5000       
-                v.TargetSelection.MaxAngle = 3.14          
-
-                -- [B] MAGNETISM (SPEED BOOST)
+                -- [B] MAGNETISM (The "Snap")
                 v.Magnetism.Enabled = true
-                v.Magnetism.MaxDistance = 5000
-                v.Magnetism.PullStrength = 3.0             -- DOUBLED (Was 1.5). Instant Snap.
+                v.Magnetism.MaxDistance = 9999
+                v.Magnetism.PullStrength = 8.0 -- Increased for Instant Lock
                 v.Magnetism.StopThreshold = 0              
-                v.Magnetism.MaxAngleHorizontal = 3.14      
-                v.Magnetism.MaxAngleVertical = 1.5
+                v.Magnetism.MaxAngleHorizontal = 6.28      
+                v.Magnetism.MaxAngleVertical = 6.28
 
-                -- [C] FRICTION (Precision)
+                -- [C] FRICTION (The "Stickiness")
                 v.Friction.Enabled = true
-                v.Friction.BubbleRadius = 10.0             -- Kept small to prevent wall shots.
-                v.Friction.MinSensitivity = 0.01           
+                v.Friction.BubbleRadius = 45.0 -- LARGE BUBBLE: You don't have to aim exactly at the head anymore.
+                v.Friction.MinSensitivity = 0.001 -- Locks your mouse onto the target
                 
                 -- [D] NO RECOIL
                 v.RecoilAssist.Enabled = true
@@ -79,7 +71,7 @@ local function InjectGodMode()
             end
         end
 
-        -- STEP 2: Bypass Smoke Check
+        -- Bypass Smoke/Fog visibility checks
         for i, v in pairs(getgc()) do
             if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
                 hookfunction(v, function() return false end)
@@ -91,7 +83,7 @@ local function InjectGodMode()
 end
 
 -- -------------------------------------------------------------------------
--- 3. UI SYSTEM
+-- 3. UI SYSTEM (Minimized for better performance)
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -107,14 +99,14 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "B"
+IconButton.Text = "V"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- DRAG LOGIC
+-- Drag Logic for UI
 local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
@@ -149,7 +141,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY GOD"
+Title.Text = "VELOCITY GOD V2"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -173,7 +165,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 4. VISUALS
+-- 4. VISUALS (ESP)
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -203,7 +195,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- -------------------------------------------------------------------------
--- 5. BUTTONS
+-- 5. BUTTONS & ACTIVATION
 -- -------------------------------------------------------------------------
 local Content = Instance.new("Frame")
 Content.Size = UDim2.new(1, 0, 1, -30)
@@ -229,11 +221,11 @@ end
 local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
 EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
 
-local RageBtn = Btn("Inject Velocity Settings", 1, function() 
+local RageBtn = Btn("Inject Velocity God", 1, function() 
     local success = InjectGodMode()
-    if success then return true else return false end
+    return success
 end)
-RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Velocity Settings"
+RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Velocity God"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God Loaded")
+print("[Bloxstrike] Velocity God V2 Loaded")
