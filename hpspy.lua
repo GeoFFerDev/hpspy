@@ -1,47 +1,60 @@
--- BLOXSTRIKE VELOCITY GOD v4 (STABLE)
--- Features: Velocity Aimbot (Instant Snap + No Recoil + Wallbang), ESP.
--- Fixes: Removed risky Silent Footsteps. Fixed UI Sync (Buttons now match reality).
+-- BLOXSTRIKE VELOCITY GOD v5 (PERFORMANCE)
+-- Features: Optimized Aimbot, 0% Recoil, ESP, FPS Booster.
+-- Changelog: Removed laggy pcalls. Removed unsafe Silent Steps. Added GFX Tuner.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
--- CONFIGURATION (Everything starts OFF for safety)
+-- SETTINGS
 local Config = {
-    ESP = false,         -- Was true, now FALSE to match button
+    ESP = false,
     Aimbot = false,
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
--- MEMORY STORAGE
+-- MEMORY
 local Highlights = {}
 local OriginalSettings = {} 
-local Hooks = {
-    SmokeCheck = nil
-}
+local Hooks = { SmokeCheck = nil }
 
 -- -------------------------------------------------------------------------
--- 1. ANTI-CRASH
+-- 1. FPS BOOSTER (New Feature)
 -- -------------------------------------------------------------------------
-local function ProtectExecution(func)
-    local success, result = pcall(func)
-    return success
+local function BoostFPS()
+    -- 1. Disable Heavy Lighting
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 2
+    
+    -- 2. Delete Textures (Makes game look flat but runs fast)
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("Texture") or v:IsA("Decal") or v:IsA("ParticleEmitter") then
+            v:Destroy()
+        elseif v:IsA("BasePart") and not v:IsA("MeshPart") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
+        end
+    end
+    print("[Bloxstrike] FPS Boost Applied")
 end
 
 -- -------------------------------------------------------------------------
 -- 2. VELOCITY AIMBOT (Memory Editor)
 -- -------------------------------------------------------------------------
 local function ToggleAimbot(state)
-    ProtectExecution(function()
+    -- We only use pcall here (once per click), not in the loop
+    pcall(function()
         -- 1. Find the Master Settings Table
         for i, v in pairs(getgc(true)) do
             if type(v) == "table" 
                and rawget(v, "Magnetism") 
                and rawget(v, "RecoilAssist") then
                 
-                -- Backup Default Settings (Only once)
+                -- Backup Default Settings
                 if not OriginalSettings.Magnetism then
                     OriginalSettings = {
                         MagDist = v.Magnetism.MaxDistance,
@@ -54,30 +67,27 @@ local function ToggleAimbot(state)
 
                 if state then
                     -- [ON] ACTIVATE GOD SETTINGS
-                    
-                    -- Targeting (Map Wide)
                     v.TargetSelection.MaxDistance = 5000       
                     v.TargetSelection.MaxAngle = 3.14          
 
                     -- Magnetism (Instant Snap)
                     v.Magnetism.Enabled = true
                     v.Magnetism.MaxDistance = 5000
-                    v.Magnetism.PullStrength = 5.0             -- MAX SPEED
+                    v.Magnetism.PullStrength = 5.0             
                     v.Magnetism.StopThreshold = 0              
                     v.Magnetism.MaxAngleHorizontal = 3.14      
                     v.Magnetism.MaxAngleVertical = 1.5
 
                     -- Friction (Sniper Safe)
                     v.Friction.Enabled = true
-                    v.Friction.BubbleRadius = 10.0             -- 10.0 = Tight bubble
-                    v.Friction.MinSensitivity = 0.001          -- Zero mouse movement
+                    v.Friction.BubbleRadius = 10.0             
+                    v.Friction.MinSensitivity = 0.001          
                     
                     -- No Recoil
                     v.RecoilAssist.Enabled = true
                     v.RecoilAssist.ReductionAmount = 1.0
-                    
                 else
-                    -- [OFF] RESTORE DEFAULT SETTINGS
+                    -- [OFF] RESTORE DEFAULTS
                     if OriginalSettings.Magnetism then
                         v.Magnetism.MaxDistance = OriginalSettings.MagDist
                         v.Magnetism.PullStrength = OriginalSettings.Pull
@@ -89,12 +99,12 @@ local function ToggleAimbot(state)
             end
         end
 
-        -- 2. Smoke Check Bypass (Inject Once)
+        -- 2. Smoke Check Bypass
         if not Hooks.SmokeCheck then
              for i, v in pairs(getgc()) do
                 if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
                     Hooks.SmokeCheck = hookfunction(v, function()
-                        if Config.Aimbot then return false end -- Bypass only if Aimbot is ON
+                        if Config.Aimbot then return false end
                         return true
                     end)
                 end
@@ -120,14 +130,14 @@ IconFrame.Parent = ScreenGui
 local IconButton = Instance.new("TextButton")
 IconButton.Size = UDim2.new(1, 0, 1, 0)
 IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "B"
+IconButton.Text = "V5"
 IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconButton.Font = Enum.Font.SourceSansBold
 IconButton.TextSize = 24
 IconButton.Parent = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- Dragging Logic
+-- Optimized Dragging
 local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
@@ -145,7 +155,7 @@ IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.U
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 150) -- Adjusted height
+MainFrame.Size = UDim2.new(0, 220, 0, 190) -- Compact
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -162,7 +172,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY GOD v4"
+Title.Text = "VELOCITY V5 (FPS)"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
@@ -186,7 +196,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 4. BUTTONS (INDEPENDENT SWITCHES)
+-- 4. BUTTONS
 -- -------------------------------------------------------------------------
 local Content = Instance.new("Frame")
 Content.Size = UDim2.new(1, 0, 1, -30)
@@ -217,21 +227,36 @@ local function CreateSwitch(name, order, callback)
     return b
 end
 
--- [SWITCH 1] ESP
+-- [1] ESP
 CreateSwitch("Full Body ESP", 0, function() 
     Config.ESP = not Config.ESP
     return Config.ESP 
 end)
 
--- [SWITCH 2] VELOCITY AIMBOT
+-- [2] AIMBOT
 CreateSwitch("Velocity Aimbot", 1, function()
     Config.Aimbot = not Config.Aimbot
     ToggleAimbot(Config.Aimbot) 
     return Config.Aimbot
 end)
 
+-- [3] FPS BOOST (One-time click)
+local FPSBtn = Instance.new("TextButton")
+FPSBtn.Size = UDim2.new(0.9, 0, 0, 35)
+FPSBtn.Position = UDim2.new(0.05, 0, 0, 10 + (2 * 40))
+FPSBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200) -- Blue
+FPSBtn.Text = "Boost FPS (Low GFX)"
+FPSBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+FPSBtn.Parent = Content
+Instance.new("UICorner", FPSBtn).CornerRadius = UDim.new(0, 6)
+FPSBtn.MouseButton1Click:Connect(function()
+    BoostFPS()
+    FPSBtn.Text = "FPS Boosted!"
+    FPSBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+end)
+
 -- -------------------------------------------------------------------------
--- 5. VISUALS LOOP
+-- 5. OPTIMIZED VISUALS LOOP
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -240,25 +265,28 @@ local function IsEnemy(player)
     return myTeam ~= theirTeam
 end
 
+-- Removed 'pcall' from the loop to restore FPS
 RunService.RenderStepped:Connect(function()
-    ProtectExecution(function()
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                local char = player.Character
-                if Config.ESP and char and IsEnemy(player) then
-                    if not Highlights[player] or Highlights[player].Parent ~= char then
-                        local hl = Instance.new("Highlight")
-                        hl.FillTransparency = 0.5; hl.OutlineTransparency = 0; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        hl.FillColor = Config.Enemy_Color; hl.OutlineColor = Config.Enemy_Color; hl.Parent = char
-                        Highlights[player] = hl
-                    end
-                else
-                    if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if Config.ESP and char and IsEnemy(player) then
+                if not Highlights[player] or Highlights[player].Parent ~= char then
+                    local hl = Instance.new("Highlight")
+                    hl.FillTransparency = 0.5
+                    hl.OutlineTransparency = 0
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.FillColor = Config.Enemy_Color
+                    hl.OutlineColor = Config.Enemy_Color
+                    hl.Parent = char
+                    Highlights[player] = hl
                 end
+            else
+                if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
             end
         end
-    end)
+    end
 end)
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God v4 Loaded")
+print("[Bloxstrike] Velocity God v5 Loaded")
