@@ -1,17 +1,17 @@
--- BLOXSTRIKE VELOCITY SUITE (REVERTED & TUNED)
--- Features: Fixed UI, Fixed ESP, High-Power Magnetism (Walls ignored), Auto-Fire added.
+-- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION)
+-- Features: Ultra-Fast Snap (25.0 Pull), Wide Active Zone (120 Radius), Wall Bypass, Auto-Fire.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse() -- Added for Auto-Fire
+local Mouse = LocalPlayer:GetMouse()
 
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
-    AutoFire = false, -- Default to off, toggle with button
+    AutoFire = false, -- Toggle this ON via the GUI button
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
@@ -31,7 +31,7 @@ local function ProtectExecution(func)
 end
 
 -- -------------------------------------------------------------------------
--- 2. THE MEMORY HIJACK (THIS IS THE ONLY PART I TUNED)
+-- 2. THE MEMORY HIJACK (TUNED FOR MAX SPEED)
 -- -------------------------------------------------------------------------
 local function InjectGodMode()
     local foundTable = false
@@ -45,27 +45,26 @@ local function InjectGodMode()
                and rawget(v, "RecoilAssist") 
                and rawget(v, "Friction") then
                 
-                -- [A] TARGETING
-                v.TargetSelection.MaxDistance = 9999        
-                v.TargetSelection.MaxAngle = 6.28 -- Full 360 degrees (Was 3.14)
-
-                -- **WALL CHECK BYPASS** (The fix for enemies behind walls)
-                -- We attempt to set these false. If the game updates, this won't crash due to pcall.
+                -- [A] TARGETING (Wide FOV)
+                v.TargetSelection.MaxDistance = 10000        
+                v.TargetSelection.MaxAngle = 6.28 
+                
+                -- WALL BYPASS
                 if v.TargetSelection.CheckWalls ~= nil then v.TargetSelection.CheckWalls = false end
                 if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
 
-                -- [B] MAGNETISM (SPEED BOOST)
+                -- [B] MAGNETISM (SPEED & SNAP)
                 v.Magnetism.Enabled = true
-                v.Magnetism.MaxDistance = 9999
-                v.Magnetism.PullStrength = 8.0              -- INCREASED: Was 3.0. This makes it snap much faster.
+                v.Magnetism.MaxDistance = 10000
+                v.Magnetism.PullStrength = 25.0             -- DRASTICALLY INCREASED (Was 8.0). Moves instantly.
                 v.Magnetism.StopThreshold = 0              
-                v.Magnetism.MaxAngleHorizontal = 6.28       -- Full 360
+                v.Magnetism.MaxAngleHorizontal = 6.28       
                 v.Magnetism.MaxAngleVertical = 6.28
 
-                -- [C] FRICTION (Precision)
+                -- [C] FRICTION (RESPONSIVENESS)
                 v.Friction.Enabled = true
-                v.Friction.BubbleRadius = 50.0              -- INCREASED: Was 10.0. This fixes the "aim exactly at head" issue.
-                v.Friction.MinSensitivity = 0.001           
+                v.Friction.BubbleRadius = 120.0             -- INCREASED (Was 50.0). Activates as soon as enemy is near crosshair.
+                v.Friction.MinSensitivity = 0.0001          -- Hard Lock
                 
                 -- [D] NO RECOIL
                 v.RecoilAssist.Enabled = true
@@ -87,7 +86,7 @@ local function InjectGodMode()
 end
 
 -- -------------------------------------------------------------------------
--- 3. UI SYSTEM (RESTORED TO ORIGINAL)
+-- 3. UI SYSTEM
 -- -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
@@ -128,7 +127,7 @@ IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.U
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 220) -- Increased Height slightly for new button
+MainFrame.Size = UDim2.new(0, 220, 0, 220) 
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -145,14 +144,14 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY GOD"
+Title.Text = "VELOCITY MAX"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 16
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = TitleBar
 
--- RESTORED MINIMIZE BUTTON
+-- MINIMIZE BUTTON
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 30, 0, 30)
 MinBtn.Position = UDim2.new(1, -30, 0, 0)
@@ -170,7 +169,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 4. VISUALS (RESTORED TO ORIGINAL)
+-- 4. VISUALS & AUTO FIRE
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -184,12 +183,14 @@ RunService.RenderStepped:Connect(function()
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local char = player.Character
-                -- Triggerbot Logic (Added safely here)
+                
+                -- AUTO FIRE LOGIC
                 if Config.AutoFire and char and Mouse.Target and Mouse.Target.Parent == char and IsEnemy(player) then
                      local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
                      if tool then tool:Activate() end
                 end
 
+                -- ESP LOGIC
                 if Config.ESP_Enabled and char and IsEnemy(player) then
                     if not Highlights[player] or Highlights[player].Parent ~= char then
                         local hl = Instance.new("Highlight")
@@ -235,11 +236,11 @@ EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ES
 local TriggerBtn = Btn("Auto Fire", 1, function() Config.AutoFire = not Config.AutoFire; return Config.AutoFire end)
 TriggerBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); TriggerBtn.Text = "Auto Fire: OFF"
 
-local RageBtn = Btn("Inject Velocity Settings", 2, function() 
+local RageBtn = Btn("Inject Max Velocity", 2, function() 
     local success = InjectGodMode()
     if success then return true else return false end
 end)
-RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Velocity Settings"
+RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Max Velocity"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Velocity God Restored")
+print("[Bloxstrike] Max Speed Loaded")
