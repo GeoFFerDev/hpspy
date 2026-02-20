@@ -1,4 +1,4 @@
--- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION)
+-- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - OPTIMIZED
 -- Features: Ultra-Fast Snap (25.0 Pull), Wide Active Zone (120 Radius), Wall Bypass, Auto-Fire.
 
 local Players = game:GetService("Players")
@@ -31,53 +31,56 @@ local function ProtectExecution(func)
 end
 
 -- -------------------------------------------------------------------------
--- 2. THE MEMORY HIJACK (TUNED FOR MAX SPEED)
+-- 2. THE MEMORY HIJACK (OPTIMIZED PASS)
 -- -------------------------------------------------------------------------
 local function InjectGodMode()
     local foundTable = false
+    local hookedSmoke = false
     
     ProtectExecution(function()
-        -- STEP 1: Find the Master Settings Table
-        for i, v in pairs(getgc(true)) do
-            if type(v) == "table" 
-               and rawget(v, "TargetSelection") 
-               and rawget(v, "Magnetism") 
-               and rawget(v, "RecoilAssist") 
-               and rawget(v, "Friction") then
-                
-                -- [A] TARGETING (Wide FOV)
-                v.TargetSelection.MaxDistance = 10000        
-                v.TargetSelection.MaxAngle = 6.28 
-                
-                -- WALL BYPASS
-                if v.TargetSelection.CheckWalls ~= nil then v.TargetSelection.CheckWalls = false end
-                if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
+        -- OPTIMIZATION: Combine both memory scans into a single pass and break early when found.
+        local gc = getgc(true)
+        for i = 1, #gc do
+            local v = gc[i]
+            
+            if type(v) == "table" and not foundTable then
+                if rawget(v, "TargetSelection") and rawget(v, "Magnetism") and rawget(v, "RecoilAssist") and rawget(v, "Friction") then
+                    
+                    -- [A] TARGETING
+                    v.TargetSelection.MaxDistance = 10000        
+                    v.TargetSelection.MaxAngle = 6.28 
+                    if v.TargetSelection.CheckWalls ~= nil then v.TargetSelection.CheckWalls = false end
+                    if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
 
-                -- [B] MAGNETISM (SPEED & SNAP)
-                v.Magnetism.Enabled = true
-                v.Magnetism.MaxDistance = 10000
-                v.Magnetism.PullStrength = 25.0             -- DRASTICALLY INCREASED (Was 8.0). Moves instantly.
-                v.Magnetism.StopThreshold = 0              
-                v.Magnetism.MaxAngleHorizontal = 6.28       
-                v.Magnetism.MaxAngleVertical = 6.28
+                    -- [B] MAGNETISM
+                    v.Magnetism.Enabled = true
+                    v.Magnetism.MaxDistance = 10000
+                    v.Magnetism.PullStrength = 25.0             
+                    v.Magnetism.StopThreshold = 0              
+                    v.Magnetism.MaxAngleHorizontal = 6.28       
+                    v.Magnetism.MaxAngleVertical = 6.28
 
-                -- [C] FRICTION (RESPONSIVENESS)
-                v.Friction.Enabled = true
-                v.Friction.BubbleRadius = 120.0             -- INCREASED (Was 50.0). Activates as soon as enemy is near crosshair.
-                v.Friction.MinSensitivity = 0.0001          -- Hard Lock
-                
-                -- [D] NO RECOIL
-                v.RecoilAssist.Enabled = true
-                v.RecoilAssist.ReductionAmount = 1.0        
+                    -- [C] FRICTION
+                    v.Friction.Enabled = true
+                    v.Friction.BubbleRadius = 120.0             
+                    v.Friction.MinSensitivity = 0.0001          
+                    
+                    -- [D] NO RECOIL
+                    v.RecoilAssist.Enabled = true
+                    v.RecoilAssist.ReductionAmount = 1.0       
 
-                foundTable = true
+                    foundTable = true
+                end
+            elseif type(v) == "function" and not hookedSmoke then
+                if debug.info(v, "n") == "doesRaycastIntersectSmoke" then
+                    hookfunction(v, function() return false end)
+                    hookedSmoke = true
+                end
             end
-        end
-
-        -- STEP 2: Bypass Smoke Check
-        for i, v in pairs(getgc()) do
-            if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
-                hookfunction(v, function() return false end)
+            
+            -- OPTIMIZATION: Exit the memory scan immediately once both targets are hijacked.
+            if foundTable and hookedSmoke then
+                break
             end
         end
     end)
@@ -169,7 +172,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 4. VISUALS & AUTO FIRE
+-- 4. VISUALS & AUTO FIRE (SPLIT & OPTIMIZED)
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -178,32 +181,54 @@ local function IsEnemy(player)
     return myTeam ~= theirTeam
 end
 
+-- OPTIMIZATION: AutoFire stays on RenderStepped but resolves directly from Mouse.Target (Extremely fast)
 RunService.RenderStepped:Connect(function()
+    if not Config.AutoFire then return end -- CPU Saver
+    
     ProtectExecution(function()
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                local char = player.Character
-                
-                -- AUTO FIRE LOGIC
-                if Config.AutoFire and char and Mouse.Target and Mouse.Target.Parent == char and IsEnemy(player) then
-                     local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                     if tool then tool:Activate() end
-                end
-
-                -- ESP LOGIC
-                if Config.ESP_Enabled and char and IsEnemy(player) then
-                    if not Highlights[player] or Highlights[player].Parent ~= char then
-                        local hl = Instance.new("Highlight")
-                        hl.FillTransparency = 0.5; hl.OutlineTransparency = 0; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        hl.FillColor = Config.Enemy_Color; hl.OutlineColor = Config.Enemy_Color; hl.Parent = char
-                        Highlights[player] = hl
-                    end
-                else
-                    if Highlights[player] then Highlights[player]:Destroy(); Highlights[player] = nil end
-                end
+        local target = Mouse.Target
+        if target and target.Parent then
+            local char = target.Parent
+            local targetPlayer = Players:GetPlayerFromCharacter(char)
+            
+            if targetPlayer and targetPlayer ~= LocalPlayer and IsEnemy(targetPlayer) then
+                 local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                 if tool then tool:Activate() end
             end
         end
     end)
+end)
+
+-- OPTIMIZATION: ESP logic moved to a lighter loop. Highlighting 60x a second causes massive frame drops.
+task.spawn(function()
+    while task.wait(0.1) do
+        ProtectExecution(function()
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    local char = player.Character
+
+                    if Config.ESP_Enabled and char and IsEnemy(player) then
+                        if not Highlights[player] or Highlights[player].Parent ~= char then
+                            if Highlights[player] then Highlights[player]:Destroy() end
+                            local hl = Instance.new("Highlight")
+                            hl.FillTransparency = 0.5
+                            hl.OutlineTransparency = 0
+                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            hl.FillColor = Config.Enemy_Color
+                            hl.OutlineColor = Config.Enemy_Color
+                            hl.Parent = char
+                            Highlights[player] = hl
+                        end
+                    else
+                        if Highlights[player] then 
+                            Highlights[player]:Destroy()
+                            Highlights[player] = nil 
+                        end
+                    end
+                end
+            end
+        end)
+    end
 end)
 
 -- -------------------------------------------------------------------------
@@ -243,4 +268,4 @@ end)
 RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Max Velocity"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Max Speed Loaded")
+print("[Bloxstrike] Max Speed Loaded (Optimized)")
