@@ -1,10 +1,11 @@
--- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v5.3
+-- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v5.4
 -- Features: Ultra-Fast Aggressive Snap, Wide Active Zone, Wall Bypass,
 --           Native AutoFire Boost, Player-Count FPS Fix, Reliable Button Toggles.
--- v5.3 Fix:
---   • Restored Minimize Button and complete UI from v5.1.
---   • FIXED AIM: Disabled "Friction" (which caused the camera to get stuck in the surroundings).
---   • SAFE HEAD AIM: Tries to safely force "Head" targeting without crashing the gun script.
+--           + Hitbox Expander, Zero Spread, Infinite Ammo (all client-side only)
+-- v5.4 New Features (client-side ONLY, no server-side effect):
+--   • Hitbox Expander: Inflates enemy character parts locally for easier hits.
+--   • Zero Spread: Hooks the local applySpread function to return perfect accuracy.
+--   • Infinite Ammo: Keeps local ammo counter maxed so reload animation never triggers.
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -196,16 +197,15 @@ local function ApplyVelocityON(v)
     -- MAGNETISM — The Pull
     v.Magnetism.Enabled            = true
     v.Magnetism.MaxDistance        = 10000
-    v.Magnetism.PullStrength       = 40.0   -- Fast enough to snap instantly, safe enough to not break math
+    v.Magnetism.PullStrength       = 40.0
     v.Magnetism.StopThreshold      = 0
     v.Magnetism.MaxAngleHorizontal = 6.28
     v.Magnetism.MaxAngleVertical   = 6.28
     
-    -- FRICTION — THE FIX
-    -- Turning this OFF prevents the camera from getting "stuck" in the surroundings.
+    -- FRICTION — Off to prevent camera sticking
     v.Friction.Enabled             = false  
     v.Friction.BubbleRadius        = 0      
-    v.Friction.MinSensitivity      = 1.0    -- 1.0 = No slowdown
+    v.Friction.MinSensitivity      = 1.0
 
     -- RECOIL — Full suppression
     v.RecoilAssist.Enabled         = true
@@ -218,7 +218,6 @@ local function ApplyVelocityOFF(v)
     v.Magnetism.MaxAngleHorizontal = 0.5
     v.Magnetism.MaxAngleVertical   = 0.5
     
-    -- Restore Friction to safe defaults
     v.Friction.Enabled             = true
     v.Friction.BubbleRadius        = 5.0
     v.Friction.MinSensitivity      = 1.0
@@ -349,7 +348,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- 7. UI (RESTORED EXACTLY FROM v5.1)
+-- 7. UI
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.ResetOnSpawn = false
@@ -374,9 +373,9 @@ IconButton.TextSize         = 24
 IconButton.Parent           = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- Main window
+-- Main window — taller to fit 6 buttons
 local MainFrame = Instance.new("Frame")
-MainFrame.Size             = UDim2.new(0, 220, 0, 220)
+MainFrame.Size             = UDim2.new(0, 220, 0, 340)   -- increased from 220 → 340
 MainFrame.Position         = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel  = 0
@@ -468,12 +467,12 @@ local COLOR_IDLE = Color3.fromRGB(180, 60, 0)
 local function MakeButton(label, order, startColor)
     local b = Instance.new("TextButton")
     b.Size             = UDim2.new(0.9, 0, 0, 35)
-    b.Position         = UDim2.new(0.05, 0, 0, 10 + order * 40)
+    b.Position         = UDim2.new(0.05, 0, 0, 10 + order * 45)  -- 45px spacing for 6 buttons
     b.BackgroundColor3 = startColor or COLOR_OFF
     b.Text             = label .. ": OFF"
     b.TextColor3       = Color3.fromRGB(255, 255, 255)
     b.Font             = Enum.Font.SourceSansBold
-    b.TextSize         = 14
+    b.TextSize         = 13
     b.Parent           = Content
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
     return b
@@ -535,4 +534,250 @@ VelBtn.MouseButton1Click:Connect(function()
     VelBtn.BackgroundColor3 = velActive and COLOR_ON or COLOR_IDLE
 end)
 
-print("[Bloxstrike] v5.3 Loaded — Restored UI & Fixed Surrounding Stickiness")
+-- =========================================================================
+-- 9. NEW FEATURE: HITBOX EXPANDER (100% client-side)
+--    Inflates every BasePart on enemy characters so your local raycast
+--    has a much larger target to register. The server never sees any
+--    size change — this only affects YOUR screen's raycasting.
+--    Scale: 3 = 3× wider/taller boxes. Raise/lower as preferred.
+-- =========================================================================
+local HITBOX_SCALE   = 3       -- how many times bigger each part becomes
+local hitboxActive   = false
+local expandedParts  = {}      -- [BasePart] = originalSize
+local hitboxThread   = nil
+
+local function ExpandCharacterHitboxes()
+    for player in pairs(PlayerCache) do
+        if IsEnemy(player) and player.Character then
+            for _, part in ipairs(player.Character:GetDescendants()) do
+                if part:IsA("BasePart") and not expandedParts[part] then
+                    local ok, err = pcall(function()
+                        expandedParts[part] = part.Size
+                        part.Size = part.Size * HITBOX_SCALE
+                    end)
+                end
+            end
+        end
+    end
+end
+
+local function RestoreAllHitboxes()
+    for part, origSize in pairs(expandedParts) do
+        pcall(function()
+            if part and part.Parent then
+                part.Size = origSize
+            end
+        end)
+    end
+    expandedParts = {}
+end
+
+-- Clean up if player respawns / leaves mid-session
+Players.PlayerRemoving:Connect(function(p)
+    if hitboxActive and p.Character then
+        for _, part in ipairs(p.Character:GetDescendants()) do
+            if part:IsA("BasePart") and expandedParts[part] then
+                pcall(function() part.Size = expandedParts[part] end)
+                expandedParts[part] = nil
+            end
+        end
+    end
+end)
+
+local HitboxBtn = MakeButton("Hitbox Expand", 3, COLOR_IDLE)
+
+HitboxBtn.MouseButton1Click:Connect(function()
+    hitboxActive = not hitboxActive
+
+    if hitboxActive then
+        -- Expand immediately, then keep expanding newly spawned enemies every 0.5s
+        ExpandCharacterHitboxes()
+        if hitboxThread then task.cancel(hitboxThread) end
+        hitboxThread = task.spawn(function()
+            while hitboxActive do
+                task.wait(0.5)
+                if hitboxActive then ExpandCharacterHitboxes() end
+            end
+        end)
+        print("[Bloxstrike] Hitbox Expand ON — scale x" .. HITBOX_SCALE)
+    else
+        RestoreAllHitboxes()
+        if hitboxThread then task.cancel(hitboxThread); hitboxThread = nil end
+        print("[Bloxstrike] Hitbox Expand OFF — sizes restored")
+    end
+
+    HitboxBtn.Text             = "Hitbox Expand: " .. (hitboxActive and "ON" or "OFF")
+    HitboxBtn.BackgroundColor3 = hitboxActive and COLOR_ON or COLOR_IDLE
+end)
+
+-- =========================================================================
+-- 10. NEW FEATURE: ZERO SPREAD (100% client-side)
+--     Hooks the "applySpread" function inside the Bullet module via gc scan.
+--     When active, every shot fires dead-straight regardless of movement,
+--     spray-and-pray, or crouch state. Server sees the direction you send —
+--     so with aimbot ON you'll get perfectly on-target rays every shot.
+-- =========================================================================
+local spreadHooked  = false
+local spreadActive  = false
+local origSpreadFn  = nil
+
+local function TryHookSpread()
+    if spreadHooked then return true end
+
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "function" then
+            -- The Bullet module has an internal "applySpread" helper
+            -- signature: applySpread(direction: Vector3, spread: number, seed: number) → Vector3
+            local name = debug.info(v, "n")
+            if name == "applySpread" then
+                origSpreadFn = clonefunction(v)
+                hookfunction(v, function(direction, _spread, _seed)
+                    -- Return the original direction untouched — zero deviation
+                    return direction
+                end)
+                spreadHooked = true
+                print("[Bloxstrike] Zero Spread hooked via applySpread")
+                return true
+            end
+        end
+    end
+
+    -- Fallback: scan for live Bullet instance and zero its Spread position
+    -- The Bullet object has .Spread (a StateMachine/spring object with :getPosition())
+    if not spreadHooked then
+        for i = 1, #gc do
+            local v = gc[i]
+            if type(v) == "table" then
+                local sp = rawget(v, "Spread")
+                local cs = rawget(v, "CharacterSpeed")
+                local pr = rawget(v, "Properties")
+                if sp ~= nil and cs ~= nil and type(pr) == "table" then
+                    -- Override the spread object's update so it always stays at 0
+                    pcall(function()
+                        sp.update = function() end          -- stop it climbing
+                        sp.setPosition = function(_, val)   -- clamp any writes to 0
+                            rawset(sp, "_pos", 0)
+                        end
+                        sp.getPosition = function()
+                            return 0
+                        end
+                    end)
+                    spreadHooked = true
+                    print("[Bloxstrike] Zero Spread hooked via Bullet.Spread object")
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local SpreadBtn = MakeButton("Zero Spread", 4, COLOR_IDLE)
+
+SpreadBtn.MouseButton1Click:Connect(function()
+    spreadActive = not spreadActive
+
+    if spreadActive then
+        local ok = TryHookSpread()
+        if not ok then
+            -- Not found yet — keep button ON and remind them to fire once
+            warn("[Bloxstrike] Spread function not found. Fire your weapon once, then toggle again.")
+            -- Don't revert state — leave ON so retry is easy
+        else
+            print("[Bloxstrike] Zero Spread: ON")
+        end
+    else
+        -- hookfunction is permanent once applied; toggling OFF is informational
+        -- The hook stays, but we log the state for the user
+        if spreadHooked then
+            print("[Bloxstrike] Zero Spread: hook stays active (hookfunction is permanent).")
+            print("[Bloxstrike] Re-inject the script to fully restore spread.")
+        end
+    end
+
+    SpreadBtn.Text             = "Zero Spread: " .. (spreadActive and "ON" or "OFF")
+    SpreadBtn.BackgroundColor3 = spreadActive and COLOR_ON or COLOR_IDLE
+end)
+
+-- =========================================================================
+-- 11. NEW FEATURE: INFINITE AMMO (100% client-side)
+--     Scans gc for the live weapon object (the table that has both .Rounds
+--     and .Capacity as number fields) and continuously sets Rounds = Capacity.
+--     This prevents the reload animation from triggering because the client
+--     never sees an empty mag. The server tracks ammo independently — this
+--     is a pure visual/local state trick so there's zero server interaction.
+-- =========================================================================
+local ammoActive  = false
+local ammoThread  = nil
+
+-- Field name pairs: { ammoField, maxField }
+-- The script tries each pair until it finds a match on the live weapon object.
+local AMMO_PAIRS = {
+    { "Rounds",        "Capacity"    },
+    { "rounds",        "capacity"    },
+    { "CurrentAmmo",   "MaxAmmo"     },
+    { "currentAmmo",   "maxAmmo"     },
+    { "Ammo",          "MaxAmmo"     },
+    { "ammo",          "maxAmmo"     },
+    { "CurrentRounds", "TotalRounds" },
+}
+
+-- Looks for a live weapon state table in gc — distinct from Properties tables
+-- (those have DamagePerPart; live weapon objects have Rounds AND IsEquipped)
+local function FindLiveWeaponTable()
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table" then
+            for _, pair in ipairs(AMMO_PAIRS) do
+                local af, mf = pair[1], pair[2]
+                local rounds   = rawget(v, af)
+                local capacity = rawget(v, mf)
+                if type(rounds) == "number" and type(capacity) == "number"
+                and capacity > 0 and rounds >= 0
+                -- Exclude pure Properties tables (they also have DamagePerPart)
+                and not rawget(v, "DamagePerPart") then
+                    -- Extra confidence check: live weapons also carry IsEquipped or IsShooting
+                    if rawget(v, "IsEquipped") ~= nil or rawget(v, "IsShooting") ~= nil then
+                        return v, af, mf
+                    end
+                end
+            end
+        end
+    end
+    return nil, nil, nil
+end
+
+local AmmoBtn = MakeButton("Infinite Ammo", 5, COLOR_IDLE)
+
+AmmoBtn.MouseButton1Click:Connect(function()
+    ammoActive = not ammoActive
+
+    if ammoActive then
+        if ammoThread then task.cancel(ammoThread) end
+        ammoThread = task.spawn(function()
+            while ammoActive do
+                local t, af, mf = FindLiveWeaponTable()
+                if t then
+                    local cap = rawget(t, mf)
+                    if type(cap) == "number" and cap > 0 then
+                        t[af] = cap    -- keep rounds pinned at full capacity
+                    end
+                end
+                task.wait(0.05)        -- 20 Hz — fast enough to prevent reload trigger
+            end
+        end)
+        print("[Bloxstrike] Infinite Ammo ON — equip a weapon if not found immediately")
+    else
+        if ammoThread then task.cancel(ammoThread); ammoThread = nil end
+        print("[Bloxstrike] Infinite Ammo OFF")
+    end
+
+    AmmoBtn.Text             = "Infinite Ammo: " .. (ammoActive and "ON" or "OFF")
+    AmmoBtn.BackgroundColor3 = ammoActive and COLOR_ON or COLOR_IDLE
+end)
+
+print("[Bloxstrike] v5.4 Loaded — Hitbox Expand / Zero Spread / Infinite Ammo added")
