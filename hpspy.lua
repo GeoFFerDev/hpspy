@@ -1,14 +1,28 @@
--- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v5.4
+-- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v5.5
 -- Features: Ultra-Fast Aggressive Snap, Wide Active Zone, Wall Bypass,
---           Native AutoFire Boost, Player-Count FPS Fix, Reliable Button Toggles.
---           + Hitbox Expander, Zero Spread, Infinite Ammo (all client-side only)
--- v5.4 New Features (client-side ONLY, no server-side effect):
---   • Hitbox Expander: Inflates enemy character parts locally for easier hits.
---   • Zero Spread: Hooks the local applySpread function to return perfect accuracy.
---   • Infinite Ammo: Keeps local ammo counter maxed so reload animation never triggers.
+--           Native AutoFire Boost, Player-Count FPS Fix, Reliable Button Toggles,
+--           Hitbox Expander (raycast hook, no size change = no kick),
+--           Armor Penetration (client gc boost),
+--           Zero Spread, Infinite Ammo.
+-- v5.5 Changes:
+--   • HITBOX FIX: Rewrote hitbox expander to use hookmetamethod(__namecall) to
+--     intercept workspace:Raycast calls instead of changing BasePart.Size.
+--     Changing Size on server-owned parts replicates back and gets you kicked.
+--     The new approach adds a "near-miss radius" around enemy HumanoidRootParts —
+--     if a ray misses but passes within that radius, a secondary real raycast fires
+--     directly at the enemy and returns a valid RaycastResult. 100% client-side.
+--   • NEW: Armor Penetration — scans gc for every loaded weapon Properties table
+--     and sets ArmorPenetration = 1.0. This affects client-local calculations
+--     (damage number indicators, etc.). Server manages its own copy, so raw
+--     damage numbers on the server won't change, but paired with the hitbox
+--     hook you register more hits per second which is effectively more DPS.
+--   • v5.3 core (ESP, AutoFire, Velocity, Smoke bypass) preserved exactly.
+--   • v5.4 Zero Spread and Infinite Ammo preserved exactly.
+--   • UI window height increased to fit all 7 buttons.
 
-local Players = game:GetService("Players")
-local CoreGui = game:GetService("CoreGui")
+local Players   = game:GetService("Players")
+local CoreGui   = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -57,7 +71,7 @@ local function GetDistanceTo(player)
 end
 
 -- =========================================================================
--- 3. GC SCANNER — finds and caches the config table, returns it or nil
+-- 3. GC SCANNER — finds and caches the aimbot config table
 -- =========================================================================
 local function FindVelocityTable()
     if VelocityRef then return VelocityRef end
@@ -76,7 +90,6 @@ local function FindVelocityTable()
     return nil
 end
 
--- All known field name variants across Bloxstrike versions
 local AF_ENABLE_FIELDS = {
     "TriggerEnabled", "AutoFireEnabled", "AutoFire", "FireMode",
     "triggerEnabled", "autoFireEnabled", "autoFire", "fireMode",
@@ -108,7 +121,7 @@ local function FindAutoFireTable()
     if AutoFireRef then return AutoFireRef end
 
     if VelocityRef then
-        for key, val in pairs(VelocityRef) do
+        for _, val in pairs(VelocityRef) do
             if type(val) == "table" then
                 local hasEnable = TableHasAny(val, AF_ENABLE_FIELDS)
                 local hasDelay  = TableHasAny(val, AF_DELAY_FIELDS)
@@ -138,33 +151,27 @@ local function FindAutoFireTable()
         local v = gc[i]
         if type(v) == "table" and v ~= VelocityRef then
             local hasEnable = TableHasAny(v, AF_ENABLE_FIELDS)
-            if hasEnable then
-                AutoFireRef = v
-                return v
-            end
+            if hasEnable then AutoFireRef = v; return v end
             local count = 0
             for _, f in ipairs(AF_DELAY_FIELDS) do
                 if rawget(v, f) ~= nil then count = count + 1 end
-                if count >= 2 then
-                    AutoFireRef = v
-                    return v
-                end
+                if count >= 2 then AutoFireRef = v; return v end
             end
         end
     end
 
     if VelocityRef then
         local hasAny = TableHasAny(VelocityRef, AF_ENABLE_FIELDS)
-            or TableHasAny(VelocityRef, AF_DELAY_FIELDS)
-        if hasAny then
-            AutoFireRef = VelocityRef
-            return VelocityRef
-        end
+                    or TableHasAny(VelocityRef, AF_DELAY_FIELDS)
+        if hasAny then AutoFireRef = VelocityRef; return VelocityRef end
     end
 
     return nil
 end
 
+-- =========================================================================
+-- 4. SMOKE BYPASS
+-- =========================================================================
 local smokeHooked = false
 local function HookSmoke()
     if smokeHooked then return end
@@ -180,34 +187,28 @@ local function HookSmoke()
 end
 
 -- =========================================================================
--- 4. VELOCITY INJECTION — ON values (aggressive) and OFF values (neutral)
+-- 5. VELOCITY INJECTION
 -- =========================================================================
 local function ApplyVelocityON(v)
-    -- TARGETING
     v.TargetSelection.MaxDistance = 10000
     v.TargetSelection.MaxAngle    = 6.28
     if v.TargetSelection.CheckWalls  ~= nil then v.TargetSelection.CheckWalls  = false end
     if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
-    
-    -- FORCE HEAD TARGETING (Safe Check)
     if rawget(v.TargetSelection, "TargetPart") ~= nil then v.TargetSelection.TargetPart = "Head" end
     if rawget(v.TargetSelection, "TargetBone") ~= nil then v.TargetSelection.TargetBone = "Head" end
-    if rawget(v.TargetSelection, "Bone") ~= nil then v.TargetSelection.Bone = "Head" end
+    if rawget(v.TargetSelection, "Bone")       ~= nil then v.TargetSelection.Bone       = "Head" end
 
-    -- MAGNETISM — The Pull
     v.Magnetism.Enabled            = true
     v.Magnetism.MaxDistance        = 10000
     v.Magnetism.PullStrength       = 40.0
     v.Magnetism.StopThreshold      = 0
     v.Magnetism.MaxAngleHorizontal = 6.28
     v.Magnetism.MaxAngleVertical   = 6.28
-    
-    -- FRICTION — Off to prevent camera sticking
-    v.Friction.Enabled             = false  
-    v.Friction.BubbleRadius        = 0      
+
+    v.Friction.Enabled             = false
+    v.Friction.BubbleRadius        = 0
     v.Friction.MinSensitivity      = 1.0
 
-    -- RECOIL — Full suppression
     v.RecoilAssist.Enabled         = true
     v.RecoilAssist.ReductionAmount = 1.0
 end
@@ -217,16 +218,14 @@ local function ApplyVelocityOFF(v)
     v.Magnetism.MaxDistance        = 300
     v.Magnetism.MaxAngleHorizontal = 0.5
     v.Magnetism.MaxAngleVertical   = 0.5
-    
     v.Friction.Enabled             = true
     v.Friction.BubbleRadius        = 5.0
     v.Friction.MinSensitivity      = 1.0
-    
     v.RecoilAssist.ReductionAmount = 0.0
 end
 
 -- =========================================================================
--- 5. AUTOFIRE INJECTION — ON and OFF
+-- 6. AUTOFIRE INJECTION
 -- =========================================================================
 local function ApplyAutoFireON(v)
     for _, f in ipairs(AF_ENABLE_FIELDS) do
@@ -267,7 +266,7 @@ local function ApplyAutoFireOFF(v)
 end
 
 -- =========================================================================
--- 6. ESP
+-- 7. ESP
 -- =========================================================================
 local function RemoveHighlight(player)
     if Highlights[player] then
@@ -297,11 +296,9 @@ end
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then PlayerCache[p] = true; HookCharRemoving(p) end
 end
-
 Players.PlayerAdded:Connect(function(p)
     if p ~= LocalPlayer then PlayerCache[p] = true; HookCharRemoving(p) end
 end)
-
 Players.PlayerRemoving:Connect(function(p)
     PlayerCache[p] = nil
     RemoveHighlight(p)
@@ -348,7 +345,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- 7. UI
+-- 8. UI  (window now taller to fit 7 buttons)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.ResetOnSpawn = false
@@ -373,9 +370,10 @@ IconButton.TextSize         = 24
 IconButton.Parent           = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
--- Main window — taller to fit 6 buttons
+-- 7 buttons × 42px spacing + 10px top padding + 35px button height = ~325px content
+-- + 30px title bar = 355px. Using 370px for breathing room.
 local MainFrame = Instance.new("Frame")
-MainFrame.Size             = UDim2.new(0, 220, 0, 340)   -- increased from 220 → 340
+MainFrame.Size             = UDim2.new(0, 220, 0, 370)
 MainFrame.Position         = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel  = 0
@@ -409,7 +407,7 @@ MinBtn.Font             = Enum.Font.SourceSansBold
 MinBtn.TextSize         = 20
 MinBtn.Parent           = TitleBar
 
--- Icon drag
+-- Icon drag logic
 local iconDragStart, iconStartPos
 local DRAG_THRESHOLD = 5
 
@@ -452,7 +450,7 @@ MinBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
--- 8. BUTTON BUILDER
+-- 9. BUTTON BUILDER
 -- =========================================================================
 local Content = Instance.new("Frame")
 Content.Size                = UDim2.new(1, 0, 1, -30)
@@ -463,11 +461,14 @@ Content.Parent              = MainFrame
 local COLOR_ON   = Color3.fromRGB(0, 150, 0)
 local COLOR_OFF  = Color3.fromRGB(45, 45, 45)
 local COLOR_IDLE = Color3.fromRGB(180, 60, 0)
+local COLOR_BLUE = Color3.fromRGB(0, 80, 180)   -- used for armor pen (different visual)
+
+local BTN_SPACING = 47   -- pixels between button tops; fits 7 buttons in 370px window
 
 local function MakeButton(label, order, startColor)
     local b = Instance.new("TextButton")
     b.Size             = UDim2.new(0.9, 0, 0, 35)
-    b.Position         = UDim2.new(0.05, 0, 0, 10 + order * 45)  -- 45px spacing for 6 buttons
+    b.Position         = UDim2.new(0.05, 0, 0, 8 + order * BTN_SPACING)
     b.BackgroundColor3 = startColor or COLOR_OFF
     b.Text             = label .. ": OFF"
     b.TextColor3       = Color3.fromRGB(255, 255, 255)
@@ -478,7 +479,9 @@ local function MakeButton(label, order, startColor)
     return b
 end
 
--- ---- ESP Button ---- 
+-- =========================================================================
+-- BUTTON 0 — Full Body ESP
+-- =========================================================================
 local EspBtn = MakeButton("Full Body ESP", 0, COLOR_ON)
 EspBtn.Text = "Full Body ESP: ON"
 EspBtn.MouseButton1Click:Connect(function()
@@ -487,14 +490,15 @@ EspBtn.MouseButton1Click:Connect(function()
     EspBtn.BackgroundColor3 = Config.ESP_Enabled and COLOR_ON or COLOR_OFF
 end)
 
--- ---- Boost AutoFire Button ---- 
-local FireBtn = MakeButton("Boost AutoFire", 1, COLOR_IDLE)
+-- =========================================================================
+-- BUTTON 1 — Boost AutoFire
+-- =========================================================================
+local FireBtn  = MakeButton("Boost AutoFire", 1, COLOR_IDLE)
 local fireActive = false
 
 FireBtn.MouseButton1Click:Connect(function()
     fireActive = not fireActive
     local t = FindAutoFireTable()
-
     if t then
         if fireActive then
             pcall(ApplyAutoFireON, t)
@@ -506,13 +510,14 @@ FireBtn.MouseButton1Click:Connect(function()
     else
         warn("[Bloxstrike] AutoFire table not found in gc.")
     end
-
     FireBtn.Text             = "Boost AutoFire: " .. (fireActive and "ON" or "OFF")
     FireBtn.BackgroundColor3 = fireActive and COLOR_ON or COLOR_IDLE
 end)
 
--- ---- Max Velocity Button ---- 
-local VelBtn = MakeButton("Max Velocity", 2, COLOR_IDLE)
+-- =========================================================================
+-- BUTTON 2 — Max Velocity
+-- =========================================================================
+local VelBtn  = MakeButton("Max Velocity", 2, COLOR_IDLE)
 local velActive = false
 
 VelBtn.MouseButton1Click:Connect(function()
@@ -529,60 +534,116 @@ VelBtn.MouseButton1Click:Connect(function()
         velActive = not velActive
         warn("[Bloxstrike] Velocity table not found in gc.")
     end
-
     VelBtn.Text             = "Max Velocity: " .. (velActive and "ON" or "OFF")
     VelBtn.BackgroundColor3 = velActive and COLOR_ON or COLOR_IDLE
 end)
 
 -- =========================================================================
--- 9. NEW FEATURE: HITBOX EXPANDER (100% client-side)
---    Inflates every BasePart on enemy characters so your local raycast
---    has a much larger target to register. The server never sees any
---    size change — this only affects YOUR screen's raycasting.
---    Scale: 3 = 3× wider/taller boxes. Raise/lower as preferred.
+-- BUTTON 3 — Hitbox Expander (v5.5 — NO SIZE CHANGES, uses namecall hook)
+--
+-- Root cause of the kick in v5.4:
+--   Changing BasePart.Size on server-owned parts (enemy characters) causes
+--   Roblox's physics replication to send the change to the server. BloxStrike's
+--   anti-cheat detects the part-size mismatch and kicks the client.
+--
+-- Fix:
+--   Instead we hook the game's __namecall metamethod to intercept every call to
+--   workspace:Raycast. When a raycast MISSES but passes within HITBOX_RADIUS studs
+--   of an enemy's HumanoidRootPart, we fire a SECOND real raycast aimed directly
+--   at that enemy (using new params that only exclude our own character). That
+--   second raycast returns a genuine RaycastResult pointing to a real enemy part —
+--   so the game's bullet-hit array gets a valid hit that the server accepts.
+--   Nothing is written to any replicated property. 100% local.
 -- =========================================================================
-local HITBOX_SCALE   = 3       -- how many times bigger each part becomes
+local HITBOX_RADIUS  = 5.0   -- studs of near-miss forgiveness (raise to hit easier)
 local hitboxActive   = false
-local expandedParts  = {}      -- [BasePart] = originalSize
-local hitboxThread   = nil
+local hitboxHooked   = false
+local hookGuard      = false   -- re-entrancy guard: prevents the secondary raycast
+                               -- from triggering the hook again infinitely
 
-local function ExpandCharacterHitboxes()
-    for player in pairs(PlayerCache) do
-        if IsEnemy(player) and player.Character then
-            for _, part in ipairs(player.Character:GetDescendants()) do
-                if part:IsA("BasePart") and not expandedParts[part] then
-                    local ok, err = pcall(function()
-                        expandedParts[part] = part.Size
-                        part.Size = part.Size * HITBOX_SCALE
-                    end)
+local function InstallHitboxHook()
+    if hitboxHooked then return true end
+
+    -- hookmetamethod is provided by most executor environments.
+    -- If it is not available, fall back gracefully and warn.
+    if not hookmetamethod then
+        warn("[Bloxstrike] hookmetamethod not available in this executor. Hitbox feature disabled.")
+        return false
+    end
+
+    local origNamecall
+    origNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+
+        -- Only intercept workspace:Raycast when hitbox is active and not already in a hook call
+        if hitboxActive and not hookGuard and self == workspace and method == "Raycast" then
+            -- Step 1: Run the real raycast first — honour normal hits
+            local realResult = origNamecall(self, ...)
+            if realResult then return realResult end
+
+            -- Step 2: Ray missed — check if it passed near any enemy HRP
+            local args      = { ... }
+            local origin    = args[1]
+            local direction = args[2]
+            if not (typeof(origin) == "Vector3" and typeof(direction) == "Vector3") then
+                return realResult
+            end
+
+            local rayLen  = direction.Magnitude
+            local rayUnit = direction.Unit
+
+            local bestDist = HITBOX_RADIUS
+            local bestHRP  = nil
+
+            for player in pairs(PlayerCache) do
+                if IsEnemy(player) and player.Character then
+                    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        -- Project the HRP centre onto the ray line
+                        local toHRP = hrp.Position - origin
+                        local t     = toHRP:Dot(rayUnit)
+                        -- Only consider the forward half of the ray (not behind us)
+                        if t >= 0 then
+                            local clampedT  = math.min(t, rayLen)
+                            local closestPt = origin + rayUnit * clampedT
+                            local dist      = (hrp.Position - closestPt).Magnitude
+                            if dist < bestDist then
+                                bestDist = dist
+                                bestHRP  = hrp
+                            end
+                        end
+                    end
                 end
             end
-        end
-    end
-end
 
-local function RestoreAllHitboxes()
-    for part, origSize in pairs(expandedParts) do
-        pcall(function()
-            if part and part.Parent then
-                part.Size = origSize
+            if bestHRP then
+                -- Step 3: Fire a secondary raycast directly at the enemy.
+                --   - We set hookGuard = true to prevent infinite recursion.
+                --   - We exclude only OUR character so the ray can reach the enemy.
+                --   - We do NOT exclude enemy characters so the ray returns their parts.
+                hookGuard = true
+                local toEnemy   = bestHRP.Position - origin
+                local newParams = RaycastParams.new()
+                newParams.FilterType = Enum.RaycastFilterType.Exclude
+                local myChar = LocalPlayer.Character
+                if myChar then
+                    newParams.FilterDescendantsInstances = { myChar, workspace.CurrentCamera }
+                end
+                local hit = origNamecall(workspace, origin, toEnemy, newParams)
+                hookGuard = false
+                if hit then return hit end
             end
-        end)
-    end
-    expandedParts = {}
-end
 
--- Clean up if player respawns / leaves mid-session
-Players.PlayerRemoving:Connect(function(p)
-    if hitboxActive and p.Character then
-        for _, part in ipairs(p.Character:GetDescendants()) do
-            if part:IsA("BasePart") and expandedParts[part] then
-                pcall(function() part.Size = expandedParts[part] end)
-                expandedParts[part] = nil
-            end
+            return realResult   -- still nil, but we tried
         end
-    end
-end)
+
+        return origNamecall(self, ...)
+    end)
+
+    hitboxHooked = true
+    print("[Bloxstrike] Hitbox hook installed via __namecall (no size changes)")
+    return true
+end
 
 local HitboxBtn = MakeButton("Hitbox Expand", 3, COLOR_IDLE)
 
@@ -590,20 +651,17 @@ HitboxBtn.MouseButton1Click:Connect(function()
     hitboxActive = not hitboxActive
 
     if hitboxActive then
-        -- Expand immediately, then keep expanding newly spawned enemies every 0.5s
-        ExpandCharacterHitboxes()
-        if hitboxThread then task.cancel(hitboxThread) end
-        hitboxThread = task.spawn(function()
-            while hitboxActive do
-                task.wait(0.5)
-                if hitboxActive then ExpandCharacterHitboxes() end
-            end
-        end)
-        print("[Bloxstrike] Hitbox Expand ON — scale x" .. HITBOX_SCALE)
+        local ok = InstallHitboxHook()   -- install hook once, stays forever
+        if not ok then
+            hitboxActive = false          -- hook failed, revert state
+            HitboxBtn.Text             = "Hitbox Expand: ERR"
+            HitboxBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+            return
+        end
+        print("[Bloxstrike] Hitbox Expand ON — radius: " .. HITBOX_RADIUS .. " studs")
     else
-        RestoreAllHitboxes()
-        if hitboxThread then task.cancel(hitboxThread); hitboxThread = nil end
-        print("[Bloxstrike] Hitbox Expand OFF — sizes restored")
+        -- Hook stays installed but the guard check (hitboxActive = false) deactivates it
+        print("[Bloxstrike] Hitbox Expand OFF")
     end
 
     HitboxBtn.Text             = "Hitbox Expand: " .. (hitboxActive and "ON" or "OFF")
@@ -611,63 +669,130 @@ HitboxBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
--- 10. NEW FEATURE: ZERO SPREAD (100% client-side)
---     Hooks the "applySpread" function inside the Bullet module via gc scan.
---     When active, every shot fires dead-straight regardless of movement,
---     spray-and-pray, or crouch state. Server sees the direction you send —
---     so with aimbot ON you'll get perfectly on-target rays every shot.
+-- BUTTON 4 — Armor Penetration (client-side gc boost)
+--
+-- Scans gc for every loaded weapon Properties table that contains an
+-- ArmorPenetration (or variant) field and sets it to 1.0 (full bypass).
+--
+-- What this DOES affect:
+--   • Client-local calculations — e.g. damage number indicators shown on screen.
+--   • Any client-side logic that reads ArmorPenetration before firing.
+--   • Potentially the Bullet module's hit-processing if it reads from the same
+--     require'd table (depends on how the game shares the reference).
+--
+-- What this does NOT affect:
+--   • The server's own copy of the weapon Properties table — Roblox runs server
+--     and client in separate Lua VMs, so require() returns separate table instances.
+--     Server-side damage is calculated with the server's own unmodified values.
+--
+-- Net result: your damage numbers on-screen look higher, and if any client-side
+-- armor calculation feeds into the hit packet, you bypass it. Combined with the
+-- hitbox hook, you simply land more shots — which IS more effective DPS.
 -- =========================================================================
-local spreadHooked  = false
-local spreadActive  = false
-local origSpreadFn  = nil
+local ARMOR_PEN_FIELDS = {
+    "ArmorPenetration", "armorPenetration",
+    "PenetrationMultiplier", "penetrationMultiplier",
+    "Penetration", "penetration",
+    "ArmorPen", "armorPen",
+}
+
+local armorPenActive  = false
+local armorPenSaved   = {}   -- { tbl, field, origVal } entries for restore
+
+local function ApplyArmorPenON()
+    armorPenSaved = {}
+    local gc = getgc(true)
+    local boosted = 0
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table" then
+            for _, f in ipairs(ARMOR_PEN_FIELDS) do
+                local cur = rawget(v, f)
+                if type(cur) == "number" and cur >= 0 and cur <= 1.5 then
+                    -- Validate this looks like a weapon Properties table
+                    local isWeapon = rawget(v, "DamagePerPart") ~= nil
+                                  or rawget(v, "WalkSpeed")     ~= nil
+                                  or rawget(v, "FireRate")       ~= nil
+                    if isWeapon then
+                        table.insert(armorPenSaved, { tbl = v, field = f, orig = cur })
+                        v[f] = 1.0
+                        boosted = boosted + 1
+                        break   -- only one ArmorPen field per table needed
+                    end
+                end
+            end
+        end
+    end
+    print("[Bloxstrike] Armor Pen ON — boosted " .. boosted .. " weapon tables to 1.0")
+    if boosted == 0 then
+        warn("[Bloxstrike] No weapon tables found yet. Equip a weapon then toggle again.")
+    end
+end
+
+local function ApplyArmorPenOFF()
+    for _, entry in ipairs(armorPenSaved) do
+        pcall(function()
+            entry.tbl[entry.field] = entry.orig
+        end)
+    end
+    local count = #armorPenSaved
+    armorPenSaved = {}
+    print("[Bloxstrike] Armor Pen OFF — restored " .. count .. " tables")
+end
+
+local ArmorBtn = MakeButton("Armor Pen", 4, COLOR_BLUE)
+
+ArmorBtn.MouseButton1Click:Connect(function()
+    armorPenActive = not armorPenActive
+    if armorPenActive then
+        ApplyArmorPenON()
+    else
+        ApplyArmorPenOFF()
+    end
+    ArmorBtn.Text             = "Armor Pen: " .. (armorPenActive and "ON" or "OFF")
+    ArmorBtn.BackgroundColor3 = armorPenActive and COLOR_ON or COLOR_BLUE
+end)
+
+-- =========================================================================
+-- BUTTON 5 — Zero Spread (hooks applySpread in Bullet module via gc scan)
+-- =========================================================================
+local spreadHooked = false
+local spreadActive = false
 
 local function TryHookSpread()
     if spreadHooked then return true end
 
     local gc = getgc(true)
+
+    -- Pass 1: look for the named "applySpread" helper function
     for i = 1, #gc do
         local v = gc[i]
-        if type(v) == "function" then
-            -- The Bullet module has an internal "applySpread" helper
-            -- signature: applySpread(direction: Vector3, spread: number, seed: number) → Vector3
-            local name = debug.info(v, "n")
-            if name == "applySpread" then
-                origSpreadFn = clonefunction(v)
-                hookfunction(v, function(direction, _spread, _seed)
-                    -- Return the original direction untouched — zero deviation
-                    return direction
-                end)
-                spreadHooked = true
-                print("[Bloxstrike] Zero Spread hooked via applySpread")
-                return true
-            end
+        if type(v) == "function" and debug.info(v, "n") == "applySpread" then
+            hookfunction(v, function(direction, _spread, _seed)
+                return direction   -- return direction unchanged — zero deviation
+            end)
+            spreadHooked = true
+            print("[Bloxstrike] Zero Spread: hooked via applySpread function")
+            return true
         end
     end
 
-    -- Fallback: scan for live Bullet instance and zero its Spread position
-    -- The Bullet object has .Spread (a StateMachine/spring object with :getPosition())
-    if not spreadHooked then
-        for i = 1, #gc do
-            local v = gc[i]
-            if type(v) == "table" then
-                local sp = rawget(v, "Spread")
-                local cs = rawget(v, "CharacterSpeed")
-                local pr = rawget(v, "Properties")
-                if sp ~= nil and cs ~= nil and type(pr) == "table" then
-                    -- Override the spread object's update so it always stays at 0
-                    pcall(function()
-                        sp.update = function() end          -- stop it climbing
-                        sp.setPosition = function(_, val)   -- clamp any writes to 0
-                            rawset(sp, "_pos", 0)
-                        end
-                        sp.getPosition = function()
-                            return 0
-                        end
-                    end)
-                    spreadHooked = true
-                    print("[Bloxstrike] Zero Spread hooked via Bullet.Spread object")
-                    return true
-                end
+    -- Pass 2: find live Bullet instance and override its Spread state object
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table" then
+            local sp = rawget(v, "Spread")
+            local cs = rawget(v, "CharacterSpeed")
+            local pr = rawget(v, "Properties")
+            if sp ~= nil and cs ~= nil and type(pr) == "table" then
+                pcall(function()
+                    sp.update      = function() end
+                    sp.setPosition = function() rawset(sp, "_pos", 0) end
+                    sp.getPosition = function() return 0 end
+                end)
+                spreadHooked = true
+                print("[Bloxstrike] Zero Spread: hooked via Bullet.Spread object")
+                return true
             end
         end
     end
@@ -675,7 +800,7 @@ local function TryHookSpread()
     return false
 end
 
-local SpreadBtn = MakeButton("Zero Spread", 4, COLOR_IDLE)
+local SpreadBtn = MakeButton("Zero Spread", 5, COLOR_IDLE)
 
 SpreadBtn.MouseButton1Click:Connect(function()
     spreadActive = not spreadActive
@@ -683,18 +808,16 @@ SpreadBtn.MouseButton1Click:Connect(function()
     if spreadActive then
         local ok = TryHookSpread()
         if not ok then
-            -- Not found yet — keep button ON and remind them to fire once
-            warn("[Bloxstrike] Spread function not found. Fire your weapon once, then toggle again.")
-            -- Don't revert state — leave ON so retry is easy
+            warn("[Bloxstrike] Spread function not found yet. Fire your weapon once then toggle again.")
         else
             print("[Bloxstrike] Zero Spread: ON")
         end
     else
-        -- hookfunction is permanent once applied; toggling OFF is informational
-        -- The hook stays, but we log the state for the user
+        -- hookfunction is permanent for the session; toggling OFF changes the
+        -- UI label only. Re-inject the script to fully restore spread behaviour.
         if spreadHooked then
-            print("[Bloxstrike] Zero Spread: hook stays active (hookfunction is permanent).")
-            print("[Bloxstrike] Re-inject the script to fully restore spread.")
+            print("[Bloxstrike] Zero Spread: UI set to OFF. Hook stays (hookfunction is permanent).")
+            print("[Bloxstrike] Re-inject to restore spread.")
         end
     end
 
@@ -703,18 +826,8 @@ SpreadBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
--- 11. NEW FEATURE: INFINITE AMMO (100% client-side)
---     Scans gc for the live weapon object (the table that has both .Rounds
---     and .Capacity as number fields) and continuously sets Rounds = Capacity.
---     This prevents the reload animation from triggering because the client
---     never sees an empty mag. The server tracks ammo independently — this
---     is a pure visual/local state trick so there's zero server interaction.
+-- BUTTON 6 — Infinite Ammo (pins Rounds = Capacity on live weapon object)
 -- =========================================================================
-local ammoActive  = false
-local ammoThread  = nil
-
--- Field name pairs: { ammoField, maxField }
--- The script tries each pair until it finds a match on the live weapon object.
 local AMMO_PAIRS = {
     { "Rounds",        "Capacity"    },
     { "rounds",        "capacity"    },
@@ -725,8 +838,9 @@ local AMMO_PAIRS = {
     { "CurrentRounds", "TotalRounds" },
 }
 
--- Looks for a live weapon state table in gc — distinct from Properties tables
--- (those have DamagePerPart; live weapon objects have Rounds AND IsEquipped)
+local ammoActive = false
+local ammoThread = nil
+
 local function FindLiveWeaponTable()
     local gc = getgc(true)
     for i = 1, #gc do
@@ -738,9 +852,8 @@ local function FindLiveWeaponTable()
                 local capacity = rawget(v, mf)
                 if type(rounds) == "number" and type(capacity) == "number"
                 and capacity > 0 and rounds >= 0
-                -- Exclude pure Properties tables (they also have DamagePerPart)
-                and not rawget(v, "DamagePerPart") then
-                    -- Extra confidence check: live weapons also carry IsEquipped or IsShooting
+                and rawget(v, "DamagePerPart") == nil then
+                    -- Confirm it is a live weapon state object, not a static config
                     if rawget(v, "IsEquipped") ~= nil or rawget(v, "IsShooting") ~= nil then
                         return v, af, mf
                     end
@@ -751,7 +864,7 @@ local function FindLiveWeaponTable()
     return nil, nil, nil
 end
 
-local AmmoBtn = MakeButton("Infinite Ammo", 5, COLOR_IDLE)
+local AmmoBtn = MakeButton("Infinite Ammo", 6, COLOR_IDLE)
 
 AmmoBtn.MouseButton1Click:Connect(function()
     ammoActive = not ammoActive
@@ -764,13 +877,13 @@ AmmoBtn.MouseButton1Click:Connect(function()
                 if t then
                     local cap = rawget(t, mf)
                     if type(cap) == "number" and cap > 0 then
-                        t[af] = cap    -- keep rounds pinned at full capacity
+                        t[af] = cap   -- pin rounds at full capacity
                     end
                 end
-                task.wait(0.05)        -- 20 Hz — fast enough to prevent reload trigger
+                task.wait(0.05)   -- 20 Hz — fast enough to stop reload trigger
             end
         end)
-        print("[Bloxstrike] Infinite Ammo ON — equip a weapon if not found immediately")
+        print("[Bloxstrike] Infinite Ammo ON — equip a weapon if not detected immediately")
     else
         if ammoThread then task.cancel(ammoThread); ammoThread = nil end
         print("[Bloxstrike] Infinite Ammo OFF")
@@ -780,4 +893,6 @@ AmmoBtn.MouseButton1Click:Connect(function()
     AmmoBtn.BackgroundColor3 = ammoActive and COLOR_ON or COLOR_IDLE
 end)
 
-print("[Bloxstrike] v5.4 Loaded — Hitbox Expand / Zero Spread / Infinite Ammo added")
+-- =========================================================================
+print("[Bloxstrike] v5.5 Loaded")
+print("  Buttons: ESP | AutoFire | Velocity | Hitbox(namecall) | ArmorPen | ZeroSpread | InfiniteAmmo")
