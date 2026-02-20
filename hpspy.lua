@@ -1,16 +1,15 @@
--- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v3 STABILITY BUILD
--- Features: Ultra-Fast Snap (25.0 Pull), Wide Active Zone (120 Radius),
---           Wall Bypass, Native AutoFire Boost, Player-Count FPS Fix.
--- Changes from v2:
---   • Removed custom AutoFire (conflicted with game's native autofire).
---   • Added InjectAutoFireBoost() — boosts the game's own autofire aggressiveness.
---   • ESP now caps at MAX_HIGHLIGHTS nearest enemies to prevent GPU overload in
---     large servers. CharacterRemoving used for instant highlight cleanup.
---   • ESP interval scales dynamically with player count (fewer players = faster refresh).
+-- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v4 STABILITY BUILD
+-- Features: Ultra-Fast Aggressive Snap, Wide Active Zone, Wall Bypass,
+--           Native AutoFire Boost, Player-Count FPS Fix, True Button Toggles.
+-- v4 Changes:
+--   • All buttons now properly toggle ON/OFF with correct UI feedback.
+--   • Original game values are saved on first inject; restored on toggle-OFF.
+--   • Re-enabling re-applies boosted values instantly (no second gc scan needed).
+--   • Magnetism PullStrength: 25 → 80, BubbleRadius: 120 → 250 (more aggressive).
+--   • MinSensitivity: 0.0001 → 0.000001 (near-zero friction, snappiest snap).
 
 local Players          = game:GetService("Players")
 local CoreGui          = game:GetService("CoreGui")
-local RunService       = game:GetService("RunService")  -- kept for future use / sanity
 local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
@@ -19,29 +18,36 @@ local LocalPlayer = Players.LocalPlayer
 -- SETTINGS
 -- =========================================================================
 local Config = {
-    ESP_Enabled  = true,
-    Enemy_Color  = Color3.fromRGB(255, 0, 0),
+    ESP_Enabled       = true,
+    VelocityActive    = false,  -- tracks Inject Max Velocity ON/OFF
+    AutoFireActive    = false,  -- tracks Boost AutoFire ON/OFF
+    Enemy_Color       = Color3.fromRGB(255, 0, 0),
 }
 
--- Maximum simultaneous Highlight instances rendered at once.
--- AlwaysOnTop highlights are GPU-expensive; 10 is a safe ceiling
--- that still covers every realistic combat engagement range.
+-- Cached gc table references — found once, reused forever for toggles.
+-- This avoids re-scanning gc on every button press.
+local VelocityTableRef  = nil   -- the aimbot/magnetism config table
+local AutoFireTableRef  = nil   -- the autofire config table
+
+-- Stored original values so we can restore them when toggling OFF.
+local OrigVelocity = {}
+local OrigAutoFire = {}
+
 local MAX_HIGHLIGHTS = 10
 
 -- =========================================================================
 -- STATE
 -- =========================================================================
-local Highlights  = {}  -- [Player] = Highlight instance
-local PlayerCache = {}  -- event-driven player set; never stale
+local Highlights     = {}
+local PlayerCache    = {}
+local CharRemovedConns = {}
 
 -- =========================================================================
 -- 1. SAFE EXECUTION WRAPPER
 -- =========================================================================
 local function ProtectExecution(func)
     local ok, err = pcall(func)
-    if not ok then
-        warn("[Bloxstrike] Protected:", err)
-    end
+    if not ok then warn("[Bloxstrike] Protected:", err) end
     return ok
 end
 
@@ -56,62 +62,146 @@ local function IsEnemy(player)
 end
 
 -- =========================================================================
--- 3. DISTANCE HELPER  (used for highlight priority sorting)
+-- 3. DISTANCE HELPER
 -- =========================================================================
 local function GetDistanceTo(player)
-    local myChar = LocalPlayer.Character
+    local myChar    = LocalPlayer.Character
     local theirChar = player.Character
     if not myChar or not theirChar then return math.huge end
-
     local myRoot    = myChar:FindFirstChild("HumanoidRootPart")
     local theirRoot = theirChar:FindFirstChild("HumanoidRootPart")
     if not myRoot or not theirRoot then return math.huge end
-
     return (myRoot.Position - theirRoot.Position).Magnitude
 end
 
 -- =========================================================================
--- 4. VELOCITY / AIMBOT INJECTION
+-- 4. VELOCITY / AIMBOT — TRUE TOGGLE
+--
+--    First call:  Scans gc, saves originals, applies boosted values.
+--    Toggle OFF:  Restores saved originals using the cached table ref.
+--    Toggle ON:   Re-applies boosted values using the cached table ref.
+--    No repeated gc scan after first successful find.
 -- =========================================================================
-local function InjectGodMode()
-    local foundTable  = false
-    local hookedSmoke = false
+
+-- Aggressive aim values — tuned for maximum snap speed and lock radius.
+local VELOCITY_BOOST = {
+    TargetSelection_MaxDistance  = 10000,
+    TargetSelection_MaxAngle     = 6.28,
+    TargetSelection_CheckWalls   = false,
+    TargetSelection_VisibleOnly  = false,
+
+    Magnetism_Enabled            = true,
+    Magnetism_MaxDistance        = 10000,
+    Magnetism_PullStrength       = 80.0,   -- was 25.0 — 3x harder snap
+    Magnetism_StopThreshold      = 0,
+    Magnetism_MaxAngleHorizontal = 6.28,
+    Magnetism_MaxAngleVertical   = 6.28,
+
+    Friction_Enabled             = true,
+    Friction_BubbleRadius        = 250.0,  -- was 120.0 — much wider sticky zone
+    Friction_MinSensitivity      = 0.000001, -- near-zero = snappiest possible
+
+    RecoilAssist_Enabled         = true,
+    RecoilAssist_ReductionAmount = 1.0,
+}
+
+local function SaveOriginalVelocity(v)
+    -- TargetSelection
+    OrigVelocity.TS_MaxDistance  = v.TargetSelection.MaxDistance
+    OrigVelocity.TS_MaxAngle     = v.TargetSelection.MaxAngle
+    if v.TargetSelection.CheckWalls  ~= nil then OrigVelocity.TS_CheckWalls  = v.TargetSelection.CheckWalls  end
+    if v.TargetSelection.VisibleOnly ~= nil then OrigVelocity.TS_VisibleOnly = v.TargetSelection.VisibleOnly end
+    -- Magnetism
+    OrigVelocity.Mag_Enabled     = v.Magnetism.Enabled
+    OrigVelocity.Mag_MaxDist     = v.Magnetism.MaxDistance
+    OrigVelocity.Mag_Pull        = v.Magnetism.PullStrength
+    OrigVelocity.Mag_Stop        = v.Magnetism.StopThreshold
+    OrigVelocity.Mag_AngleH      = v.Magnetism.MaxAngleHorizontal
+    OrigVelocity.Mag_AngleV      = v.Magnetism.MaxAngleVertical
+    -- Friction
+    OrigVelocity.Fri_Enabled     = v.Friction.Enabled
+    OrigVelocity.Fri_Radius      = v.Friction.BubbleRadius
+    OrigVelocity.Fri_MinSens     = v.Friction.MinSensitivity
+    -- Recoil
+    OrigVelocity.RC_Enabled      = v.RecoilAssist.Enabled
+    OrigVelocity.RC_Amount       = v.RecoilAssist.ReductionAmount
+end
+
+local function ApplyVelocityBoost(v)
+    v.TargetSelection.MaxDistance = VELOCITY_BOOST.TargetSelection_MaxDistance
+    v.TargetSelection.MaxAngle    = VELOCITY_BOOST.TargetSelection_MaxAngle
+    if v.TargetSelection.CheckWalls  ~= nil then v.TargetSelection.CheckWalls  = VELOCITY_BOOST.TargetSelection_CheckWalls  end
+    if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = VELOCITY_BOOST.TargetSelection_VisibleOnly end
+
+    v.Magnetism.Enabled            = VELOCITY_BOOST.Magnetism_Enabled
+    v.Magnetism.MaxDistance        = VELOCITY_BOOST.Magnetism_MaxDistance
+    v.Magnetism.PullStrength       = VELOCITY_BOOST.Magnetism_PullStrength
+    v.Magnetism.StopThreshold      = VELOCITY_BOOST.Magnetism_StopThreshold
+    v.Magnetism.MaxAngleHorizontal = VELOCITY_BOOST.Magnetism_MaxAngleHorizontal
+    v.Magnetism.MaxAngleVertical   = VELOCITY_BOOST.Magnetism_MaxAngleVertical
+
+    v.Friction.Enabled             = VELOCITY_BOOST.Friction_Enabled
+    v.Friction.BubbleRadius        = VELOCITY_BOOST.Friction_BubbleRadius
+    v.Friction.MinSensitivity      = VELOCITY_BOOST.Friction_MinSensitivity
+
+    v.RecoilAssist.Enabled         = VELOCITY_BOOST.RecoilAssist_Enabled
+    v.RecoilAssist.ReductionAmount = VELOCITY_BOOST.RecoilAssist_ReductionAmount
+end
+
+local function RestoreVelocityOriginals(v)
+    v.TargetSelection.MaxDistance = OrigVelocity.TS_MaxDistance
+    v.TargetSelection.MaxAngle    = OrigVelocity.TS_MaxAngle
+    if OrigVelocity.TS_CheckWalls  ~= nil then v.TargetSelection.CheckWalls  = OrigVelocity.TS_CheckWalls  end
+    if OrigVelocity.TS_VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = OrigVelocity.TS_VisibleOnly end
+
+    v.Magnetism.Enabled            = OrigVelocity.Mag_Enabled
+    v.Magnetism.MaxDistance        = OrigVelocity.Mag_MaxDist
+    v.Magnetism.PullStrength       = OrigVelocity.Mag_Pull
+    v.Magnetism.StopThreshold      = OrigVelocity.Mag_Stop
+    v.Magnetism.MaxAngleHorizontal = OrigVelocity.Mag_AngleH
+    v.Magnetism.MaxAngleVertical   = OrigVelocity.Mag_AngleV
+
+    v.Friction.Enabled             = OrigVelocity.Fri_Enabled
+    v.Friction.BubbleRadius        = OrigVelocity.Fri_Radius
+    v.Friction.MinSensitivity      = OrigVelocity.Fri_MinSens
+
+    v.RecoilAssist.Enabled         = OrigVelocity.RC_Enabled
+    v.RecoilAssist.ReductionAmount = OrigVelocity.RC_Amount
+end
+
+-- Main toggle function called by the button.
+local function ToggleVelocity()
+    -- If we already have the table ref, just flip values — no gc scan.
+    if VelocityTableRef then
+        if Config.VelocityActive then
+            ProtectExecution(function() RestoreVelocityOriginals(VelocityTableRef) end)
+            Config.VelocityActive = false
+        else
+            ProtectExecution(function() ApplyVelocityBoost(VelocityTableRef) end)
+            Config.VelocityActive = true
+        end
+        return Config.VelocityActive
+    end
+
+    -- First time: scan gc to find the table, save originals, then apply.
+    local found        = false
+    local hookedSmoke  = false
 
     ProtectExecution(function()
         local gc = getgc(true)
         for i = 1, #gc do
             local v = gc[i]
 
-            if type(v) == "table" and not foundTable then
+            if type(v) == "table" and not found then
                 if rawget(v, "TargetSelection")
                 and rawget(v, "Magnetism")
                 and rawget(v, "RecoilAssist")
                 and rawget(v, "Friction") then
-
-                    -- [A] TARGETING
-                    v.TargetSelection.MaxDistance = 10000
-                    v.TargetSelection.MaxAngle    = 6.28
-                    if v.TargetSelection.CheckWalls  ~= nil then v.TargetSelection.CheckWalls  = false end
-                    if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
-
-                    -- [B] MAGNETISM
-                    v.Magnetism.Enabled            = true
-                    v.Magnetism.MaxDistance        = 10000
-                    v.Magnetism.PullStrength       = 25.0
-                    v.Magnetism.StopThreshold      = 0
-                    v.Magnetism.MaxAngleHorizontal = 6.28
-                    v.Magnetism.MaxAngleVertical   = 6.28
-
-                    -- [C] FRICTION
-                    v.Friction.Enabled        = true
-                    v.Friction.BubbleRadius   = 120.0
-                    v.Friction.MinSensitivity = 0.0001
-
-                    -- [D] NO RECOIL
-                    v.RecoilAssist.Enabled         = true
-                    v.RecoilAssist.ReductionAmount = 1.0
-
-                    foundTable = true
+                    SaveOriginalVelocity(v)
+                    ApplyVelocityBoost(v)
+                    VelocityTableRef      = v
+                    Config.VelocityActive = true
+                    found = true
                 end
 
             elseif type(v) == "function" and not hookedSmoke then
@@ -121,31 +211,95 @@ local function InjectGodMode()
                 end
             end
 
-            if foundTable and hookedSmoke then break end
+            if found and hookedSmoke then break end
         end
     end)
 
-    return foundTable
+    return Config.VelocityActive
 end
 
 -- =========================================================================
--- 5. NATIVE AUTOFIRE BOOST INJECTION
---    Scans gc for the game's own autofire/triggerbot settings table and
---    sets every known aggressiveness field to its most aggressive value.
---    This does NOT create a second autofire — it just makes the game's
---    existing one react as fast as physically possible.
+-- 5. AUTOFIRE BOOST — TRUE TOGGLE
+--    Same pattern: first press scans gc and saves originals.
+--    Subsequent presses use the cached ref to flip instantly.
 -- =========================================================================
-local function InjectAutoFireBoost()
-    local found = false
+local AUTOFIRE_BOOST = {
+    TriggerEnabled  = true,
+    AutoFireEnabled = true,
+    Sensitivity     = 1.0,
+    ReactionTime    = 0.0,
+    FireDelay       = 0.0,
+    TriggerDelay    = 0.0,
+    AutoFireDelay   = 0.0,
+    ShootDelay      = 0.0,
+    TriggerAngle    = 6.28,
+    TriggerDistance = 10000,
+    DetectionRadius = 10000,
+}
 
+local AUTOFIRE_ORIGINAL_DEFAULTS = {
+    Sensitivity     = 0.5,
+    ReactionTime    = 0.15,
+    FireDelay       = 0.1,
+    TriggerDelay    = 0.1,
+    AutoFireDelay   = 0.1,
+    ShootDelay      = 0.1,
+    TriggerAngle    = 1.0,
+    TriggerDistance = 300,
+    DetectionRadius = 300,
+    TriggerEnabled  = false,
+    AutoFireEnabled = false,
+}
+
+local function SaveOriginalAutoFire(v)
+    for field, default in pairs(AUTOFIRE_ORIGINAL_DEFAULTS) do
+        if rawget(v, field) ~= nil then
+            OrigAutoFire[field] = v[field]
+        end
+    end
+end
+
+local function ApplyAutoFireBoost(v)
+    for field, val in pairs(AUTOFIRE_BOOST) do
+        if rawget(v, field) ~= nil then
+            -- Handle the AutoFire boolean field separately.
+            if field == "AutoFire" and type(v[field]) ~= "boolean" then continue end
+            v[field] = val
+        end
+    end
+end
+
+local function RestoreAutoFireOriginals(v)
+    for field, val in pairs(OrigAutoFire) do
+        if rawget(v, field) ~= nil then
+            v[field] = val
+        end
+    end
+    -- Explicitly disable the trigger system on restore.
+    if rawget(v, "TriggerEnabled")  ~= nil then v.TriggerEnabled  = false end
+    if rawget(v, "AutoFireEnabled") ~= nil then v.AutoFireEnabled = false end
+end
+
+local function ToggleAutoFireBoost()
+    -- Fast path: table already found.
+    if AutoFireTableRef then
+        if Config.AutoFireActive then
+            ProtectExecution(function() RestoreAutoFireOriginals(AutoFireTableRef) end)
+            Config.AutoFireActive = false
+        else
+            ProtectExecution(function() ApplyAutoFireBoost(AutoFireTableRef) end)
+            Config.AutoFireActive = true
+        end
+        return Config.AutoFireActive
+    end
+
+    -- First time: scan gc.
+    local found = false
     ProtectExecution(function()
         local gc = getgc(true)
         for i = 1, #gc do
             local v = gc[i]
-
             if type(v) == "table" then
-                -- Broad scan: look for any table that owns one or more of the
-                -- known autofire sensitivity/delay field names used by the game.
                 local hasAutoFireField =
                     rawget(v, "Sensitivity")    ~= nil or
                     rawget(v, "ReactionTime")   ~= nil or
@@ -155,57 +309,29 @@ local function InjectAutoFireBoost()
                     rawget(v, "ShootDelay")     ~= nil or
                     rawget(v, "TriggerEnabled") ~= nil
 
-                -- Secondary guard: must also look like an autofire/trigger config
-                -- by owning at least one of these confirming fields.
                 local isAutoFireTable =
-                    rawget(v, "TriggerEnabled") ~= nil or
+                    rawget(v, "TriggerEnabled")  ~= nil or
                     rawget(v, "AutoFireEnabled") ~= nil or
                     rawget(v, "FireMode")        ~= nil or
                     rawget(v, "AutoFire")        ~= nil
 
                 if hasAutoFireField and isAutoFireTable then
-
-                    -- Enable the trigger/autofire system.
-                    if rawget(v, "TriggerEnabled")   ~= nil then v.TriggerEnabled   = true  end
-                    if rawget(v, "AutoFireEnabled")  ~= nil then v.AutoFireEnabled  = true  end
-                    if rawget(v, "AutoFire")         ~= nil and type(v.AutoFire) == "boolean" then
-                        v.AutoFire = true
-                    end
-
-                    -- Zero out all delay/reaction fields so it fires as fast as possible.
-                    if rawget(v, "Sensitivity")   ~= nil then v.Sensitivity   = 1.0   end
-                    if rawget(v, "ReactionTime")  ~= nil then v.ReactionTime  = 0.0   end
-                    if rawget(v, "FireDelay")     ~= nil then v.FireDelay     = 0.0   end
-                    if rawget(v, "TriggerDelay")  ~= nil then v.TriggerDelay  = 0.0   end
-                    if rawget(v, "AutoFireDelay") ~= nil then v.AutoFireDelay = 0.0   end
-                    if rawget(v, "ShootDelay")    ~= nil then v.ShootDelay    = 0.0   end
-
-                    -- Maximise detection window / angular tolerance if present.
-                    if rawget(v, "TriggerAngle")     ~= nil then v.TriggerAngle     = 6.28 end
-                    if rawget(v, "TriggerDistance")  ~= nil then v.TriggerDistance  = 10000 end
-                    if rawget(v, "DetectionRadius")  ~= nil then v.DetectionRadius  = 10000 end
-
+                    SaveOriginalAutoFire(v)
+                    ApplyAutoFireBoost(v)
+                    AutoFireTableRef      = v
+                    Config.AutoFireActive = true
                     found = true
-                    break  -- Stop after the first matching table; only one config needed.
+                    break
                 end
             end
         end
     end)
 
-    return found
+    return Config.AutoFireActive
 end
 
 -- =========================================================================
--- 6. ESP — PLAYER-COUNT AWARE, PROXIMITY-CAPPED HIGHLIGHTS
---
---    Core FPS fix: no more than MAX_HIGHLIGHTS Highlight instances exist at
---    once. On each tick we:
---      1. Collect all living enemies and sort them by distance.
---      2. Assign highlights only to the nearest MAX_HIGHLIGHTS players.
---      3. Remove highlights from anyone who fell outside the cap.
---
---    Interval scales with server size so a 60-player server doesn't spin
---    faster than a 2-player one.
+-- 6. ESP — PROXIMITY-CAPPED, PLAYER-COUNT-AWARE HIGHLIGHTS
 -- =========================================================================
 local function RemoveHighlight(player)
     if Highlights[player] then
@@ -225,19 +351,13 @@ local function CreateHighlight(char)
     return hl
 end
 
--- Instant cleanup when a character model is removed mid-match.
-local CharRemovedConns = {}  -- [Player] = RBXScriptConnection
-
 local function HookCharacterRemoving(player)
-    if CharRemovedConns[player] then
-        CharRemovedConns[player]:Disconnect()
-    end
+    if CharRemovedConns[player] then CharRemovedConns[player]:Disconnect() end
     CharRemovedConns[player] = player.CharacterRemoving:Connect(function()
         RemoveHighlight(player)
     end)
 end
 
--- Populate cache with players already in the server.
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then
         PlayerCache[p] = true
@@ -261,25 +381,16 @@ Players.PlayerRemoving:Connect(function(p)
     end
 end)
 
--- Dynamic ESP loop.
 task.spawn(function()
     while true do
-        -- Scale interval: faster refresh when few players, slower when many.
-        -- 2 players  → 0.10 s   (snappy)
-        -- 20 players → 0.20 s   (balanced)
-        -- 60 players → 0.35 s   (safe)
         local playerCount = 0
         for _ in pairs(PlayerCache) do playerCount = playerCount + 1 end
         local interval = math.clamp(0.10 + (playerCount * 0.004), 0.10, 0.35)
         task.wait(interval)
 
         if not Config.ESP_Enabled then
-            -- ESP was toggled off — clear everything and idle.
-            for player in pairs(Highlights) do
-                RemoveHighlight(player)
-            end
+            for player in pairs(Highlights) do RemoveHighlight(player) end
         else
-            -- Build a sorted list of [player, distance] for living enemies only.
             local candidates = {}
             for player in pairs(PlayerCache) do
                 if IsEnemy(player) and player.Character
@@ -287,30 +398,21 @@ task.spawn(function()
                     candidates[#candidates + 1] = { player = player, dist = GetDistanceTo(player) }
                 end
             end
-
             table.sort(candidates, function(a, b) return a.dist < b.dist end)
 
-            -- Build a set of who *should* have a highlight this tick.
             local shouldHighlight = {}
             local cap = math.min(#candidates, MAX_HIGHLIGHTS)
-            for i = 1, cap do
-                shouldHighlight[candidates[i].player] = true
-            end
+            for i = 1, cap do shouldHighlight[candidates[i].player] = true end
 
-            -- Remove highlights from players no longer in the cap.
             for player in pairs(Highlights) do
-                if not shouldHighlight[player] then
-                    RemoveHighlight(player)
-                end
+                if not shouldHighlight[player] then RemoveHighlight(player) end
             end
 
-            -- Add or validate highlights for players in the cap.
             for player in pairs(shouldHighlight) do
                 local char     = player.Character
                 local existing = Highlights[player]
-
                 if existing and existing.Parent == char then
-                    -- Already valid — zero cost, skip.
+                    -- Valid, skip.
                 else
                     if existing then existing:Destroy() end
                     Highlights[player] = CreateHighlight(char)
@@ -325,11 +427,7 @@ end)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.ResetOnSpawn = false
-if gethui then
-    ScreenGui.Parent = gethui()
-else
-    ScreenGui.Parent = CoreGui
-end
+ScreenGui.Parent = gethui and gethui() or CoreGui
 
 -- ---- Minimized Icon ----
 local IconFrame = Instance.new("Frame")
@@ -366,15 +464,15 @@ TitleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 TitleBar.Parent           = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Size              = UDim2.new(0.7, 0, 1, 0)
-Title.Position          = UDim2.new(0.05, 0, 0, 0)
+Title.Size                   = UDim2.new(0.7, 0, 1, 0)
+Title.Position               = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text              = "VELOCITY MAX"
-Title.TextColor3        = Color3.fromRGB(255, 255, 255)
-Title.Font              = Enum.Font.SourceSansBold
-Title.TextSize          = 16
-Title.TextXAlignment    = Enum.TextXAlignment.Left
-Title.Parent            = TitleBar
+Title.Text                   = "VELOCITY MAX"
+Title.TextColor3             = Color3.fromRGB(255, 255, 255)
+Title.Font                   = Enum.Font.SourceSansBold
+Title.TextSize               = 16
+Title.TextXAlignment         = Enum.TextXAlignment.Left
+Title.Parent                 = TitleBar
 
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size             = UDim2.new(0, 30, 0, 30)
@@ -386,7 +484,7 @@ MinBtn.Font             = Enum.Font.SourceSansBold
 MinBtn.TextSize         = 20
 MinBtn.Parent           = TitleBar
 
--- ---- Icon drag (tap vs drag via pixel-delta threshold) ----
+-- ---- Icon drag ----
 local iconDragStart, iconStartPos
 local DRAG_THRESHOLD = 5
 
@@ -430,6 +528,10 @@ end)
 
 -- =========================================================================
 -- 8. BUTTONS
+--    Two button types:
+--      Btn()        — simple toggle: func() returns the new boolean state.
+--      ActionBtn()  — injection toggle: tracks its own ON/OFF state correctly
+--                     and updates label/color based on Config flag, not raw return.
 -- =========================================================================
 local Content = Instance.new("Frame")
 Content.Size                = UDim2.new(1, 0, 1, -30)
@@ -437,44 +539,62 @@ Content.Position            = UDim2.new(0, 0, 0, 30)
 Content.BackgroundTransparency = 1
 Content.Parent              = MainFrame
 
-local function Btn(name, order, func)
+local COLOR_ON  = Color3.fromRGB(0, 150, 0)
+local COLOR_OFF = Color3.fromRGB(45, 45, 45)
+local COLOR_ACT = Color3.fromRGB(200, 50, 0)  -- "injector" idle color
+
+-- Simple toggle button (ESP) — func() returns new boolean state.
+local function Btn(name, order, startState, func)
     local b = Instance.new("TextButton")
     b.Size             = UDim2.new(0.9, 0, 0, 35)
     b.Position         = UDim2.new(0.05, 0, 0, 10 + (order * 40))
-    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    b.Text             = name
+    b.BackgroundColor3 = startState and COLOR_ON or COLOR_OFF
+    b.Text             = name .. ": " .. (startState and "ON" or "OFF")
     b.TextColor3       = Color3.fromRGB(255, 255, 255)
+    b.Font             = Enum.Font.SourceSansBold
+    b.TextSize         = 14
     b.Parent           = Content
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
     b.MouseButton1Click:Connect(function()
         local state = func()
         b.Text             = name .. ": " .. (state and "ON" or "OFF")
-        b.BackgroundColor3 = state and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(45, 45, 45)
+        b.BackgroundColor3 = state and COLOR_ON or COLOR_OFF
     end)
     return b
 end
 
--- Button 1: Full Body ESP
-local EspBtn = Btn("Full Body ESP", 0, function()
+-- Injection toggle button (Velocity, AutoFire).
+-- Reads Config flag AFTER func() so the display is always accurate.
+local function InjectionBtn(name, order, configKey, func)
+    local b = Instance.new("TextButton")
+    b.Size             = UDim2.new(0.9, 0, 0, 35)
+    b.Position         = UDim2.new(0.05, 0, 0, 10 + (order * 40))
+    b.BackgroundColor3 = COLOR_ACT
+    b.Text             = name .. ": OFF"
+    b.TextColor3       = Color3.fromRGB(255, 255, 255)
+    b.Font             = Enum.Font.SourceSansBold
+    b.TextSize         = 14
+    b.Parent           = Content
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    b.MouseButton1Click:Connect(function()
+        func()  -- run the toggle (modifies Config[configKey] internally)
+        local state = Config[configKey]
+        b.Text             = name .. ": " .. (state and "ON" or "OFF")
+        b.BackgroundColor3 = state and COLOR_ON or COLOR_ACT
+    end)
+    return b
+end
+
+-- Button 1: Full Body ESP (simple toggle, starts ON)
+local EspBtn = Btn("Full Body ESP", 0, true, function()
     Config.ESP_Enabled = not Config.ESP_Enabled
     return Config.ESP_Enabled
 end)
-EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
-EspBtn.Text             = "Full Body ESP: ON"
 
--- Button 2: Boost AutoFire Sensitivity
-local FireBoostBtn = Btn("Boost AutoFire", 1, function()
-    local ok = InjectAutoFireBoost()
-    return ok
-end)
-FireBoostBtn.BackgroundColor3 = Color3.fromRGB(150, 80, 0)
-FireBoostBtn.Text             = "Boost AutoFire"
+-- Button 2: Boost AutoFire (injection toggle, starts OFF)
+local _FireBtn = InjectionBtn("Boost AutoFire", 1, "AutoFireActive", ToggleAutoFireBoost)
 
--- Button 3: Inject Max Velocity
-local RageBtn = Btn("Inject Max Velocity", 2, function()
-    return InjectGodMode()
-end)
-RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0)
-RageBtn.Text             = "Inject Max Velocity"
+-- Button 3: Inject Max Velocity (injection toggle, starts OFF)
+local _VelBtn  = InjectionBtn("Max Velocity", 2, "VelocityActive", ToggleVelocity)
 
-print("[Bloxstrike] v3 Loaded — AutoFire Boost + Player-Count FPS Fix Active")
+print("[Bloxstrike] v4 Loaded — True Toggles + Aggressive Aim Active")
