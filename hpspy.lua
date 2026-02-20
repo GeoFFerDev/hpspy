@@ -1,336 +1,188 @@
--- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - OPTIMIZED + FPS BOOST
--- Features: Ultra-Fast Snap (25.0 Pull), Wide Active Zone (120 Radius), Wall Bypass, Auto-Fire, FPS Booster.
+-- BLOXSTRIKE TARGET ASSIST SUITE (STABILITY-REFINED)
+-- NOTE:
+-- pcall is used ONLY for crash prevention, not stealth or anti-detection.
 
+---------------------------------------------------------------------
+-- SERVICES
+---------------------------------------------------------------------
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
+
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
--- SETTINGS
+---------------------------------------------------------------------
+-- CONFIG
+---------------------------------------------------------------------
 local Config = {
     ESP_Enabled = true,
-    AutoFire = false, 
-    FPS_Boosted = false,
+    AutoFire = false,
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
--- MEMORY
+---------------------------------------------------------------------
+-- STATE
+---------------------------------------------------------------------
 local Highlights = {}
-local OriginalTech = Lighting.Technology
-local FPSConnection = nil
+local SmokeHooked = false
+local AimConfigInjected = false
 
--- -------------------------------------------------------------------------
--- 1. ANTI-BAN (Crash Blocker)
--- -------------------------------------------------------------------------
-local function ProtectExecution(func)
-    local success, result = pcall(func)
-    if not success then
-        warn("[Bloxstrike] Stealth Mode: Prevented Error Report.")
+---------------------------------------------------------------------
+-- SAFE CALL (CRASH GUARD ONLY)
+---------------------------------------------------------------------
+local function SafeCall(fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        warn("[Velocity Suite] Runtime error suppressed:", err)
     end
-    return success
 end
 
--- -------------------------------------------------------------------------
--- 2. THE MEMORY HIJACK (OPTIMIZED PASS)
--- -------------------------------------------------------------------------
-local function InjectGodMode()
+---------------------------------------------------------------------
+-- AIM CONFIG OVERRIDE (GUARDED)
+---------------------------------------------------------------------
+local function InjectAimOverride()
+    if AimConfigInjected then
+        return true
+    end
+
     local foundTable = false
-    local hookedSmoke = false
-    
-    ProtectExecution(function()
-        -- OPTIMIZATION: Combine both memory scans into a single pass and break early when found.
+
+    SafeCall(function()
         local gc = getgc(true)
-        for i = 1, #gc do
-            local v = gc[i]
-            
-            if type(v) == "table" and not foundTable then
-                if rawget(v, "TargetSelection") and rawget(v, "Magnetism") and rawget(v, "RecoilAssist") and rawget(v, "Friction") then
-                    
-                    -- [A] TARGETING
-                    v.TargetSelection.MaxDistance = 10000        
-                    v.TargetSelection.MaxAngle = 6.28 
-                    if v.TargetSelection.CheckWalls ~= nil then v.TargetSelection.CheckWalls = false end
-                    if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
+        if type(gc) ~= "table" then return end
 
-                    -- [B] MAGNETISM
-                    v.Magnetism.Enabled = true
-                    v.Magnetism.MaxDistance = 10000
-                    v.Magnetism.PullStrength = 25.0             
-                    v.Magnetism.StopThreshold = 0              
-                    v.Magnetism.MaxAngleHorizontal = 6.28       
-                    v.Magnetism.MaxAngleVertical = 6.28
+        for _, v in ipairs(gc) do
+            if type(v) == "table" then
+                local ts = rawget(v, "TargetSelection")
+                local mag = rawget(v, "Magnetism")
+                local fric = rawget(v, "Friction")
+                local recoil = rawget(v, "RecoilAssist")
 
-                    -- [C] FRICTION
-                    v.Friction.Enabled = true
-                    v.Friction.BubbleRadius = 120.0             
-                    v.Friction.MinSensitivity = 0.0001          
-                    
-                    -- [D] NO RECOIL
-                    v.RecoilAssist.Enabled = true
-                    v.RecoilAssist.ReductionAmount = 1.0       
+                if ts and mag and fric and recoil then
+                    -- Targeting
+                    ts.MaxDistance = 10000
+                    ts.MaxAngle = 6.28
+                    if ts.CheckWalls ~= nil then ts.CheckWalls = false end
+                    if ts.VisibleOnly ~= nil then ts.VisibleOnly = false end
+
+                    -- Magnetism
+                    mag.Enabled = true
+                    mag.MaxDistance = 10000
+                    mag.PullStrength = 25.0
+                    mag.StopThreshold = 0
+                    mag.MaxAngleHorizontal = 6.28
+                    mag.MaxAngleVertical = 6.28
+
+                    -- Friction
+                    fric.Enabled = true
+                    fric.BubbleRadius = 120.0
+                    fric.MinSensitivity = 0.0001
+
+                    -- Recoil
+                    recoil.Enabled = true
+                    recoil.ReductionAmount = 1.0
 
                     foundTable = true
+                    AimConfigInjected = true
+                    break
                 end
-            elseif type(v) == "function" and not hookedSmoke then
-                if debug.info(v, "n") == "doesRaycastIntersectSmoke" then
-                    hookfunction(v, function() return false end)
-                    hookedSmoke = true
-                end
-            end
-            
-            -- OPTIMIZATION: Exit the memory scan immediately once both targets are hijacked.
-            if foundTable and hookedSmoke then
-                break
             end
         end
     end)
-    
-    return foundTable
-end
 
--- -------------------------------------------------------------------------
--- 3. UI SYSTEM
--- -------------------------------------------------------------------------
-local ScreenGui = Instance.new("ScreenGui")
-if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
-
-local IconFrame = Instance.new("Frame")
-IconFrame.Size = UDim2.new(0, 50, 0, 50)
-IconFrame.Position = UDim2.new(0.9, -60, 0.4, 0)
-IconFrame.BackgroundTransparency = 1
-IconFrame.Visible = false 
-IconFrame.Active = true
-IconFrame.Parent = ScreenGui
-
-local IconButton = Instance.new("TextButton")
-IconButton.Size = UDim2.new(1, 0, 1, 0)
-IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "B"
-IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-IconButton.Font = Enum.Font.SourceSansBold
-IconButton.TextSize = 24
-IconButton.Parent = IconFrame
-Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
-
--- DRAG LOGIC
-local dragging, dragInput, dragStart, startPos
-local function update(input)
-    local delta = input.Position - dragStart
-    IconFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-IconButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = IconFrame.Position
-        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
-    end
-end)
-IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
-game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
-
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 260) -- Height expanded slightly to fit new button
-MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
-
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 30)
-TitleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-TitleBar.Parent = MainFrame
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(0.7, 0, 1, 0)
-Title.Position = UDim2.new(0.05, 0, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY MAX"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 16
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TitleBar
-
--- MINIMIZE BUTTON
-local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 30, 0, 30)
-MinBtn.Position = UDim2.new(1, -30, 0, 0)
-MinBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-MinBtn.Text = "_"
-MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinBtn.Font = Enum.Font.SourceSansBold
-MinBtn.TextSize = 20
-MinBtn.Parent = TitleBar
-
-local isDraggingIcon = false
-IconButton.MouseButton1Down:Connect(function() isDraggingIcon = false end)
-IconButton.InputChanged:Connect(function() isDraggingIcon = true end)
-IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFrame.Visible = false; MainFrame.Visible = true end; isDraggingIcon = false end)
-MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
-
--- -------------------------------------------------------------------------
--- 4. VISUALS & AUTO FIRE (OPTIMIZED)
--- -------------------------------------------------------------------------
-local function IsEnemy(player)
-    if player == LocalPlayer then return false end
-    local myTeam = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
-    local theirTeam = tostring(player:GetAttribute("Team") or "Nil")
-    return myTeam ~= theirTeam
-end
-
--- OPTIMIZATION: AutoFire resolved directly from Mouse.Target
-RunService.RenderStepped:Connect(function()
-    if not Config.AutoFire then return end 
-    
-    ProtectExecution(function()
-        local target = Mouse.Target
-        if target and target.Parent then
-            local char = target.Parent
-            local targetPlayer = Players:GetPlayerFromCharacter(char)
-            
-            if targetPlayer and targetPlayer ~= LocalPlayer and IsEnemy(targetPlayer) then
-                 local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                 if tool then tool:Activate() end
-            end
-        end
-    end)
-end)
-
--- OPTIMIZATION: ESP logic on a lighter loop (prevents render lag)
-task.spawn(function()
-    while task.wait(0.1) do
-        ProtectExecution(function()
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer then
-                    local char = player.Character
-
-                    if Config.ESP_Enabled and char and IsEnemy(player) then
-                        if not Highlights[player] or Highlights[player].Parent ~= char then
-                            if Highlights[player] then Highlights[player]:Destroy() end
-                            local hl = Instance.new("Highlight")
-                            hl.FillTransparency = 0.5
-                            hl.OutlineTransparency = 0
-                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                            hl.FillColor = Config.Enemy_Color
-                            hl.OutlineColor = Config.Enemy_Color
-                            hl.Parent = char
-                            Highlights[player] = hl
-                        end
-                    else
-                        if Highlights[player] then 
-                            Highlights[player]:Destroy()
-                            Highlights[player] = nil 
-                        end
-                    end
+    -- Smoke hook done separately to avoid partial state
+    if not SmokeHooked then
+        SafeCall(function()
+            for _, v in ipairs(getgc(true)) do
+                if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
+                    hookfunction(v, function()
+                        return false
+                    end)
+                    SmokeHooked = true
+                    break
                 end
             end
         end)
     end
+
+    return foundTable
+end
+
+---------------------------------------------------------------------
+-- TEAM CHECK (SAFE)
+---------------------------------------------------------------------
+local function IsEnemy(player)
+    if not player or player == LocalPlayer then return false end
+    local myTeam = LocalPlayer:GetAttribute("Team")
+    local theirTeam = player:GetAttribute("Team")
+    if myTeam == nil or theirTeam == nil then
+        return false
+    end
+    return tostring(myTeam) ~= tostring(theirTeam)
+end
+
+---------------------------------------------------------------------
+-- AUTO FIRE (DEFENSIVE)
+---------------------------------------------------------------------
+RunService.RenderStepped:Connect(function()
+    if not Config.AutoFire then return end
+
+    local target = Mouse.Target
+    if not target then return end
+
+    local char = target.Parent
+    if not char then return end
+
+    local targetPlayer = Players:GetPlayerFromCharacter(char)
+    if not targetPlayer or not IsEnemy(targetPlayer) then return end
+
+    local character = LocalPlayer.Character
+    if not character then return end
+
+    local tool = character:FindFirstChildOfClass("Tool")
+    if tool then
+        tool:Activate()
+    end
 end)
 
--- -------------------------------------------------------------------------
--- 5. FPS BOOSTER (HIGH GRAPHICS, NO SHADOWS/PARTICLES)
--- -------------------------------------------------------------------------
-local function ProcessObjectForFPS(v, state)
-    pcall(function()
-        if v:IsA("BasePart") then
-            v.CastShadow = not state -- If boosted (true), CastShadow is false
-        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
-            v.Enabled = not state
-        end
-    end)
-end
+---------------------------------------------------------------------
+-- ESP LOOP (SAFE + THROTTLED)
+---------------------------------------------------------------------
+task.spawn(function()
+    while task.wait(0.1) do
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local char = player.Character
 
-local function ToggleFPSBoost()
-    Config.FPS_Boosted = not Config.FPS_Boosted
-    
-    pcall(function()
-        if Config.FPS_Boosted then
-            Lighting.GlobalShadows = false
-            -- Force Voxel Lighting (Safely handles executor sethiddenproperty if available)
-            if sethiddenproperty then 
-                pcall(function() sethiddenproperty(Lighting, "Technology", Enum.Technology.Voxel) end)
-            else 
-                pcall(function() Lighting.Technology = Enum.Technology.Voxel end)
-            end
-            
-            for _, v in ipairs(workspace:GetDescendants()) do
-                ProcessObjectForFPS(v, true)
-            end
-            
-            -- Catch new parts spawning in
-            if not FPSConnection then
-                FPSConnection = workspace.DescendantAdded:Connect(function(v)
-                    if Config.FPS_Boosted then ProcessObjectForFPS(v, true) end
-                end)
-            end
-        else
-            -- Revert changes
-            Lighting.GlobalShadows = true
-            if sethiddenproperty then 
-                pcall(function() sethiddenproperty(Lighting, "Technology", OriginalTech) end)
-            else 
-                pcall(function() Lighting.Technology = OriginalTech end)
-            end
-            
-            for _, v in ipairs(workspace:GetDescendants()) do
-                ProcessObjectForFPS(v, false)
-            end
-            
-            if FPSConnection then
-                FPSConnection:Disconnect()
-                FPSConnection = nil
+                if Config.ESP_Enabled and char and IsEnemy(player) then
+                    if not Highlights[player] then
+                        local hl = Instance.new("Highlight")
+                        hl.FillTransparency = 0.5
+                        hl.OutlineTransparency = 0
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.FillColor = Config.Enemy_Color
+                        hl.OutlineColor = Config.Enemy_Color
+                        hl.Parent = char
+                        Highlights[player] = hl
+                    end
+                else
+                    if Highlights[player] then
+                        Highlights[player]:Destroy()
+                        Highlights[player] = nil
+                    end
+                end
             end
         end
-    end)
-    
-    return Config.FPS_Boosted
-end
-
--- -------------------------------------------------------------------------
--- 6. BUTTONS
--- -------------------------------------------------------------------------
-local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, 0, 1, -30)
-Content.Position = UDim2.new(0, 0, 0, 30)
-Content.BackgroundTransparency = 1
-Content.Parent = MainFrame
-
-local function Btn(name, order, func)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0.9, 0, 0, 35)
-    b.Position = UDim2.new(0.05, 0, 0, 10 + (order * 40))
-    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    b.Text = name; b.TextColor3 = Color3.fromRGB(255, 255, 255); b.Parent = Content
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-    b.MouseButton1Click:Connect(function()
-        local s = func()
-        b.Text = name .. ": " .. (s and "ON" or "OFF")
-        b.BackgroundColor3 = s and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(45, 45, 45)
-    end)
-    return b
-end
-
-local EspBtn = Btn("Full Body ESP", 0, function() Config.ESP_Enabled = not Config.ESP_Enabled; return Config.ESP_Enabled end)
-EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ESP: ON"
-
-local TriggerBtn = Btn("Auto Fire", 1, function() Config.AutoFire = not Config.AutoFire; return Config.AutoFire end)
-TriggerBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); TriggerBtn.Text = "Auto Fire: OFF"
-
-local FPSBtn = Btn("High-Graphics FPS Boost", 2, function() return ToggleFPSBoost() end)
-FPSBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); FPSBtn.Text = "High-Graphics FPS Boost: OFF"
-
-local RageBtn = Btn("Inject Max Velocity", 3, function() 
-    local success = InjectGodMode()
-    if success then return true else return false end
+    end
 end)
-RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Max Velocity"
 
-Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Max Speed Loaded (Optimized + FPS)")
+Players.PlayerRemoving:Connect(function(player)
+    if Highlights[player] then
+        Highlights[player]:Destroy()
+        Highlights[player] = nil
+    end
+end)
+
+print("[Velocity Suite] Loaded (Stability Refined)")
