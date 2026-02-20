@@ -1,6 +1,6 @@
--- BLOXSTRIKE TARGET ASSIST SUITE (STABILITY-REFINED)
--- NOTE:
--- pcall is used ONLY for crash prevention, not stealth or anti-detection.
+-- BLOXSTRIKE TARGET ASSIST SUITE (STABILITY + PROFILING BUILD)
+-- pcall is used ONLY for crash prevention
+-- This build includes frame-time and ESP cost monitoring
 
 ---------------------------------------------------------------------
 -- SERVICES
@@ -40,6 +40,27 @@ local function SafeCall(fn)
 end
 
 ---------------------------------------------------------------------
+-- FRAME-TIME STUTTER MONITOR
+---------------------------------------------------------------------
+local FrameProfiler = {
+    LastFrame = os.clock(),
+    SpikeThreshold = 0.05 -- 50 ms = visible stutter
+}
+
+RunService.RenderStepped:Connect(function()
+    local now = os.clock()
+    local delta = now - FrameProfiler.LastFrame
+    FrameProfiler.LastFrame = now
+
+    if delta > FrameProfiler.SpikeThreshold then
+        warn(string.format(
+            "[STUTTER] Frame spike detected: %.2f ms",
+            delta * 1000
+        ))
+    end
+end)
+
+---------------------------------------------------------------------
 -- AIM CONFIG OVERRIDE (GUARDED)
 ---------------------------------------------------------------------
 local function InjectAimOverride()
@@ -61,13 +82,11 @@ local function InjectAimOverride()
                 local recoil = rawget(v, "RecoilAssist")
 
                 if ts and mag and fric and recoil then
-                    -- Targeting
                     ts.MaxDistance = 10000
                     ts.MaxAngle = 6.28
                     if ts.CheckWalls ~= nil then ts.CheckWalls = false end
                     if ts.VisibleOnly ~= nil then ts.VisibleOnly = false end
 
-                    -- Magnetism
                     mag.Enabled = true
                     mag.MaxDistance = 10000
                     mag.PullStrength = 25.0
@@ -75,12 +94,10 @@ local function InjectAimOverride()
                     mag.MaxAngleHorizontal = 6.28
                     mag.MaxAngleVertical = 6.28
 
-                    -- Friction
                     fric.Enabled = true
                     fric.BubbleRadius = 120.0
                     fric.MinSensitivity = 0.0001
 
-                    -- Recoil
                     recoil.Enabled = true
                     recoil.ReductionAmount = 1.0
 
@@ -92,11 +109,11 @@ local function InjectAimOverride()
         end
     end)
 
-    -- Smoke hook done separately to avoid partial state
     if not SmokeHooked then
         SafeCall(function()
             for _, v in ipairs(getgc(true)) do
-                if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
+                if type(v) == "function"
+                    and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
                     hookfunction(v, function()
                         return false
                     end)
@@ -148,10 +165,12 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------------------
--- ESP LOOP (SAFE + THROTTLED)
+-- ESP LOOP + COST PROFILING
 ---------------------------------------------------------------------
 task.spawn(function()
     while task.wait(0.1) do
+        local start = os.clock()
+
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local char = player.Character
@@ -175,6 +194,14 @@ task.spawn(function()
                 end
             end
         end
+
+        local elapsed = os.clock() - start
+        if elapsed > 0.02 then
+            warn(string.format(
+                "[ESP] Loop cost: %.2f ms",
+                elapsed * 1000
+            ))
+        end
     end
 end)
 
@@ -185,4 +212,4 @@ Players.PlayerRemoving:Connect(function(player)
     end
 end)
 
-print("[Velocity Suite] Loaded (Stability Refined)")
+print("[Velocity Suite] Loaded (Profiling Enabled)")
