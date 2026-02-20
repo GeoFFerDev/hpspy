@@ -78,33 +78,100 @@ local function FindVelocityTable()
     return nil
 end
 
+-- All known field name variants across Bloxstrike versions (camelCase, PascalCase, lowercase).
+local AF_ENABLE_FIELDS = {
+    "TriggerEnabled", "AutoFireEnabled", "AutoFire", "FireMode",
+    "triggerEnabled", "autoFireEnabled", "autoFire", "fireMode",
+    "Autofire", "Trigger", "AutoShoot", "autoShoot",
+    "EnableAutoFire", "enableAutoFire", "Enable",
+}
+local AF_DELAY_FIELDS = {
+    "Sensitivity", "ReactionTime", "FireDelay", "TriggerDelay",
+    "AutoFireDelay", "ShootDelay", "DelayBetweenShots", "ShotDelay",
+    "sensitivity", "reactionTime", "fireDelay", "triggerDelay",
+    "autoFireDelay", "shootDelay", "delayBetweenShots", "shotDelay",
+    "Delay", "delay", "Rate", "rate", "Interval", "interval",
+}
+local AF_RANGE_FIELDS = {
+    "TriggerAngle", "TriggerDistance", "DetectionRadius", "AimAngle",
+    "triggerAngle", "triggerDistance", "detectionRadius", "aimAngle",
+    "Range", "range", "Radius", "radius", "Angle", "angle",
+    "MaxAngle", "maxAngle", "Distance", "distance",
+}
+
+local function TableHasAny(t, fields)
+    for _, f in ipairs(fields) do
+        if rawget(t, f) ~= nil then return true, f end
+    end
+    return false
+end
+
 local function FindAutoFireTable()
     if AutoFireRef then return AutoFireRef end
+
+    -- PASS 1: Check if autofire fields live INSIDE the velocity table as a sub-table.
+    -- Many games store all settings in one master config (e.g. VelocityRef.AutoFire = {...}).
+    if VelocityRef then
+        for key, val in pairs(VelocityRef) do
+            if type(val) == "table" then
+                local hasEnable = TableHasAny(val, AF_ENABLE_FIELDS)
+                local hasDelay  = TableHasAny(val, AF_DELAY_FIELDS)
+                if hasEnable or hasDelay then
+                    AutoFireRef = val
+                    return val
+                end
+            end
+        end
+    end
+
     local gc = getgc(true)
+
+    -- PASS 2: Strict match — needs an enable field AND a delay/sensitivity field.
     for i = 1, #gc do
         local v = gc[i]
-        if type(v) == "table" then
-            local hasField =
-                rawget(v, "Sensitivity")    ~= nil or
-                rawget(v, "ReactionTime")   ~= nil or
-                rawget(v, "FireDelay")      ~= nil or
-                rawget(v, "TriggerDelay")   ~= nil or
-                rawget(v, "AutoFireDelay")  ~= nil or
-                rawget(v, "ShootDelay")     ~= nil or
-                rawget(v, "TriggerEnabled") ~= nil
-
-            local isAF =
-                rawget(v, "TriggerEnabled")  ~= nil or
-                rawget(v, "AutoFireEnabled") ~= nil or
-                rawget(v, "FireMode")        ~= nil or
-                rawget(v, "AutoFire")        ~= nil
-
-            if hasField and isAF then
+        if type(v) == "table" and v ~= VelocityRef then
+            local hasEnable = TableHasAny(v, AF_ENABLE_FIELDS)
+            local hasDelay  = TableHasAny(v, AF_DELAY_FIELDS)
+            if hasEnable and hasDelay then
                 AutoFireRef = v
                 return v
             end
         end
     end
+
+    -- PASS 3: Permissive match — any table with an enable field OR 2+ delay fields.
+    -- Widens the net significantly for games with unconventional naming.
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table" and v ~= VelocityRef then
+            local hasEnable = TableHasAny(v, AF_ENABLE_FIELDS)
+            if hasEnable then
+                AutoFireRef = v
+                return v
+            end
+            -- Count delay-style fields; need at least 2 to avoid false positives.
+            local count = 0
+            for _, f in ipairs(AF_DELAY_FIELDS) do
+                if rawget(v, f) ~= nil then count = count + 1 end
+                if count >= 2 then
+                    AutoFireRef = v
+                    return v
+                end
+            end
+        end
+    end
+
+    -- PASS 4: If still nil, fall back to the velocity table itself —
+    -- some games embed autofire flags directly on the main config.
+    if VelocityRef then
+        local hasAny = TableHasAny(VelocityRef, AF_ENABLE_FIELDS)
+            or TableHasAny(VelocityRef, AF_DELAY_FIELDS)
+        if hasAny then
+            AutoFireRef = VelocityRef
+            return VelocityRef
+        end
+    end
+
     return nil
 end
 
@@ -162,32 +229,52 @@ end
 
 -- =========================================================================
 -- 5. AUTOFIRE INJECTION — ON and OFF
+--    Uses the same broad field lists so any naming convention is covered.
 -- =========================================================================
 local function ApplyAutoFireON(v)
-    if rawget(v, "TriggerEnabled")   ~= nil then v.TriggerEnabled   = true  end
-    if rawget(v, "AutoFireEnabled")  ~= nil then v.AutoFireEnabled  = true  end
-    if rawget(v, "Sensitivity")      ~= nil then v.Sensitivity      = 1.0   end
-    if rawget(v, "ReactionTime")     ~= nil then v.ReactionTime     = 0.0   end
-    if rawget(v, "FireDelay")        ~= nil then v.FireDelay        = 0.0   end
-    if rawget(v, "TriggerDelay")     ~= nil then v.TriggerDelay     = 0.0   end
-    if rawget(v, "AutoFireDelay")    ~= nil then v.AutoFireDelay    = 0.0   end
-    if rawget(v, "ShootDelay")       ~= nil then v.ShootDelay       = 0.0   end
-    if rawget(v, "TriggerAngle")     ~= nil then v.TriggerAngle     = 6.28  end
-    if rawget(v, "TriggerDistance")  ~= nil then v.TriggerDistance  = 10000 end
-    if rawget(v, "DetectionRadius")  ~= nil then v.DetectionRadius  = 10000 end
+    -- Enable flags — set any recognised boolean enable field to true.
+    for _, f in ipairs(AF_ENABLE_FIELDS) do
+        local cur = rawget(v, f)
+        if type(cur) == "boolean" then v[f] = true end
+    end
+    -- Zero out all delay/reaction fields.
+    for _, f in ipairs(AF_DELAY_FIELDS) do
+        local cur = rawget(v, f)
+        if type(cur) == "number" then
+            -- Sensitivity is a 0–1 scale (1.0 = max); everything else should be 0.
+            v[f] = (f == "Sensitivity" or f == "sensitivity") and 1.0 or 0.0
+        end
+    end
+    -- Maximise detection range fields.
+    for _, f in ipairs(AF_RANGE_FIELDS) do
+        local cur = rawget(v, f)
+        if type(cur) == "number" then
+            -- Angle fields cap at 6.28 (full circle); distance fields go to 10000.
+            v[f] = (string.find(string.lower(f), "angle") and 6.28) or 10000
+        end
+    end
 end
 
 local function ApplyAutoFireOFF(v)
-    if rawget(v, "TriggerEnabled")   ~= nil then v.TriggerEnabled   = false end
-    if rawget(v, "AutoFireEnabled")  ~= nil then v.AutoFireEnabled  = false end
-    if rawget(v, "ReactionTime")     ~= nil then v.ReactionTime     = 0.15  end
-    if rawget(v, "FireDelay")        ~= nil then v.FireDelay        = 0.1   end
-    if rawget(v, "TriggerDelay")     ~= nil then v.TriggerDelay     = 0.1   end
-    if rawget(v, "AutoFireDelay")    ~= nil then v.AutoFireDelay    = 0.1   end
-    if rawget(v, "ShootDelay")       ~= nil then v.ShootDelay       = 0.1   end
-    if rawget(v, "TriggerAngle")     ~= nil then v.TriggerAngle     = 1.0   end
-    if rawget(v, "TriggerDistance")  ~= nil then v.TriggerDistance  = 300   end
-    if rawget(v, "DetectionRadius")  ~= nil then v.DetectionRadius  = 300   end
+    -- Disable enable flags.
+    for _, f in ipairs(AF_ENABLE_FIELDS) do
+        local cur = rawget(v, f)
+        if type(cur) == "boolean" then v[f] = false end
+    end
+    -- Restore delays to safe defaults.
+    for _, f in ipairs(AF_DELAY_FIELDS) do
+        local cur = rawget(v, f)
+        if type(cur) == "number" then
+            v[f] = (f == "Sensitivity" or f == "sensitivity") and 0.5 or 0.1
+        end
+    end
+    -- Restore range to conservative defaults.
+    for _, f in ipairs(AF_RANGE_FIELDS) do
+        local cur = rawget(v, f)
+        if type(cur) == "number" then
+            v[f] = (string.find(string.lower(f), "angle") and 1.0) or 300
+        end
+    end
 end
 
 -- =========================================================================
@@ -420,24 +507,31 @@ local FireBtn = MakeButton("Boost AutoFire", 1, COLOR_IDLE)
 local fireActive = false
 
 FireBtn.MouseButton1Click:Connect(function()
-    -- 1. Flip the state FIRST — this always succeeds, UI is guaranteed to update.
+    -- 1. Flip state FIRST — guaranteed to always succeed.
     fireActive = not fireActive
 
-    -- 2. Try to find the table and apply the corresponding values.
+    -- 2. Search for the table (4-pass broad search).
     local t = FindAutoFireTable()
+
     if t then
+        -- Found — apply values. Even if individual writes error, state stays flipped.
         if fireActive then
             pcall(ApplyAutoFireON, t)
+            print("[Bloxstrike] AutoFire BOOST ON — table found, fields written.")
         else
             pcall(ApplyAutoFireOFF, t)
+            print("[Bloxstrike] AutoFire BOOST OFF — values restored.")
         end
     else
-        -- Table not found — revert state so button honestly shows it didn't work.
-        fireActive = not fireActive
-        warn("[Bloxstrike] AutoFire table not found in gc.")
+        -- Not found in gc at all. Two possibilities:
+        -- (a) The game hasn't loaded the autofire module yet — keep ON state so the
+        --     user can see it toggled; they can press again after the game loads more.
+        -- (b) The game uses a completely different system.
+        -- We keep fireActive as-is and warn. Do NOT silently revert.
+        warn("[Bloxstrike] AutoFire table not found in gc — try clicking again after the match starts fully.")
     end
 
-    -- 3. Update UI to match the final state.
+    -- 3. Update UI — always reflects final fireActive value.
     FireBtn.Text             = "Boost AutoFire: " .. (fireActive and "ON" or "OFF")
     FireBtn.BackgroundColor3 = fireActive and COLOR_ON or COLOR_IDLE
 end)
@@ -471,4 +565,4 @@ VelBtn.MouseButton1Click:Connect(function()
     VelBtn.BackgroundColor3 = velActive and COLOR_ON or COLOR_IDLE
 end)
 
-print("[Bloxstrike] v5 Loaded — Reliable Toggles + Aggressive Aim")
+print("[Bloxstrike] v5.1 Loaded — Broad AutoFire Search + Reliable Toggles")
