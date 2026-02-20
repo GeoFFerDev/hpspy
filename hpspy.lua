@@ -1,26 +1,23 @@
--- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - OPTIMIZED + FPS BOOST
--- Features: Ultra-Fast Snap (25.0 Pull), Wide Active Zone (120 Radius), Wall Bypass, Auto-Fire, FPS Booster.
+-- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - OPTIMIZED
+-- Features: Ultra-Fast Snap (25.0 Pull), Wide Active Zone (120 Radius), Wall Bypass, Auto-Fire.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 -- SETTINGS
 local Config = {
     ESP_Enabled = true,
-    AutoFire = false, 
-    FPS_Boosted = false,
+    AutoFire = false, -- Toggle this ON via the GUI button
     Enemy_Color = Color3.fromRGB(255, 0, 0)
 }
 
 -- MEMORY
 local Highlights = {}
-local OriginalTech = Lighting.Technology
-local FPSConnection = nil
+local OriginalSettings = {} 
 
 -- -------------------------------------------------------------------------
 -- 1. ANTI-BAN (Crash Blocker)
@@ -133,7 +130,7 @@ IconButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.U
 game:GetService("UserInputService").InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 260) -- Height expanded slightly to fit new button
+MainFrame.Size = UDim2.new(0, 220, 0, 220) 
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
@@ -175,7 +172,7 @@ IconButton.MouseButton1Up:Connect(function() if not isDraggingIcon then IconFram
 MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; IconFrame.Visible = true end)
 
 -- -------------------------------------------------------------------------
--- 4. VISUALS & AUTO FIRE (OPTIMIZED)
+-- 4. VISUALS & AUTO FIRE (SPLIT & OPTIMIZED)
 -- -------------------------------------------------------------------------
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
@@ -184,9 +181,9 @@ local function IsEnemy(player)
     return myTeam ~= theirTeam
 end
 
--- OPTIMIZATION: AutoFire resolved directly from Mouse.Target
+-- OPTIMIZATION: AutoFire stays on RenderStepped but resolves directly from Mouse.Target (Extremely fast)
 RunService.RenderStepped:Connect(function()
-    if not Config.AutoFire then return end 
+    if not Config.AutoFire then return end -- CPU Saver
     
     ProtectExecution(function()
         local target = Mouse.Target
@@ -202,7 +199,7 @@ RunService.RenderStepped:Connect(function()
     end)
 end)
 
--- OPTIMIZATION: ESP logic on a lighter loop (prevents render lag)
+-- OPTIMIZATION: ESP logic moved to a lighter loop. Highlighting 60x a second causes massive frame drops.
 task.spawn(function()
     while task.wait(0.1) do
         ProtectExecution(function()
@@ -235,66 +232,7 @@ task.spawn(function()
 end)
 
 -- -------------------------------------------------------------------------
--- 5. FPS BOOSTER (HIGH GRAPHICS, NO SHADOWS/PARTICLES)
--- -------------------------------------------------------------------------
-local function ProcessObjectForFPS(v, state)
-    pcall(function()
-        if v:IsA("BasePart") then
-            v.CastShadow = not state -- If boosted (true), CastShadow is false
-        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
-            v.Enabled = not state
-        end
-    end)
-end
-
-local function ToggleFPSBoost()
-    Config.FPS_Boosted = not Config.FPS_Boosted
-    
-    pcall(function()
-        if Config.FPS_Boosted then
-            Lighting.GlobalShadows = false
-            -- Force Voxel Lighting (Safely handles executor sethiddenproperty if available)
-            if sethiddenproperty then 
-                pcall(function() sethiddenproperty(Lighting, "Technology", Enum.Technology.Voxel) end)
-            else 
-                pcall(function() Lighting.Technology = Enum.Technology.Voxel end)
-            end
-            
-            for _, v in ipairs(workspace:GetDescendants()) do
-                ProcessObjectForFPS(v, true)
-            end
-            
-            -- Catch new parts spawning in
-            if not FPSConnection then
-                FPSConnection = workspace.DescendantAdded:Connect(function(v)
-                    if Config.FPS_Boosted then ProcessObjectForFPS(v, true) end
-                end)
-            end
-        else
-            -- Revert changes
-            Lighting.GlobalShadows = true
-            if sethiddenproperty then 
-                pcall(function() sethiddenproperty(Lighting, "Technology", OriginalTech) end)
-            else 
-                pcall(function() Lighting.Technology = OriginalTech end)
-            end
-            
-            for _, v in ipairs(workspace:GetDescendants()) do
-                ProcessObjectForFPS(v, false)
-            end
-            
-            if FPSConnection then
-                FPSConnection:Disconnect()
-                FPSConnection = nil
-            end
-        end
-    end)
-    
-    return Config.FPS_Boosted
-end
-
--- -------------------------------------------------------------------------
--- 6. BUTTONS
+-- 5. BUTTONS
 -- -------------------------------------------------------------------------
 local Content = Instance.new("Frame")
 Content.Size = UDim2.new(1, 0, 1, -30)
@@ -323,14 +261,11 @@ EspBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); EspBtn.Text = "Full Body ES
 local TriggerBtn = Btn("Auto Fire", 1, function() Config.AutoFire = not Config.AutoFire; return Config.AutoFire end)
 TriggerBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); TriggerBtn.Text = "Auto Fire: OFF"
 
-local FPSBtn = Btn("High-Graphics FPS Boost", 2, function() return ToggleFPSBoost() end)
-FPSBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); FPSBtn.Text = "High-Graphics FPS Boost: OFF"
-
-local RageBtn = Btn("Inject Max Velocity", 3, function() 
+local RageBtn = Btn("Inject Max Velocity", 2, function() 
     local success = InjectGodMode()
     if success then return true else return false end
 end)
 RageBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 0); RageBtn.Text = "Inject Max Velocity"
 
 Players.PlayerRemoving:Connect(function(p) if Highlights[p] then Highlights[p]:Destroy() end end)
-print("[Bloxstrike] Max Speed Loaded (Optimized + FPS)")
+print("[Bloxstrike] Max Speed Loaded (Optimized)")
