@@ -111,73 +111,138 @@ local function InjectGodMode()
     return foundTable
 end
 
----------------------------------------------------------------------
--- UI SYSTEM (UNCHANGED)
----------------------------------------------------------------------
+-- =========================
+-- VELOCITY MAX UI CORE
+-- =========================
+
+local CoreGui = game:GetService("CoreGui")
+local UIS = game:GetService("UserInputService")
+
+pcall(function()
+    CoreGui:FindFirstChild("VelocityMaxUI"):Destroy()
+end)
+
 local ScreenGui = Instance.new("ScreenGui")
-if gethui then ScreenGui.Parent = gethui() else ScreenGui.Parent = CoreGui end
-
-local IconFrame = Instance.new("Frame")
-IconFrame.Size = UDim2.new(0, 50, 0, 50)
-IconFrame.Position = UDim2.new(0.9, -60, 0.4, 0)
-IconFrame.BackgroundTransparency = 1
-IconFrame.Visible = false
-IconFrame.Active = true
-IconFrame.Parent = ScreenGui
-
-local IconButton = Instance.new("TextButton")
-IconButton.Size = UDim2.new(1, 0, 1, 0)
-IconButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-IconButton.Text = "B"
-IconButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-IconButton.Font = Enum.Font.SourceSansBold
-IconButton.TextSize = 24
-IconButton.Parent = IconFrame
-Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
+ScreenGui.Name = "VelocityMaxUI"
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+ScreenGui.Parent = CoreGui
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 220, 0, 260)
-MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.Size = UDim2.new(0, 260, 0, 320)
+MainFrame.Position = UDim2.new(0.1, 0, 0.25, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
 local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 30)
-TitleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+TitleBar.Size = UDim2.new(1,0,0,36)
+TitleBar.BackgroundColor3 = Color3.fromRGB(15,15,15)
 TitleBar.Parent = MainFrame
 
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(0.7, 0, 1, 0)
-Title.Position = UDim2.new(0.05, 0, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "VELOCITY MAX"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 16
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TitleBar
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1,-40,1,0)
+TitleText.Position = UDim2.new(0,10,0,0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "VELOCITY MAX"
+TitleText.TextColor3 = Color3.new(1,1,1)
+TitleText.Font = Enum.Font.SourceSansBold
+TitleText.TextSize = 18
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = TitleBar
 
 local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 30, 0, 30)
-MinBtn.Position = UDim2.new(1, -30, 0, 0)
-MinBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-MinBtn.Text = "_"
-MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinBtn.Font = Enum.Font.SourceSansBold
-MinBtn.TextSize = 20
+MinBtn.Size = UDim2.new(0,36,0,36)
+MinBtn.Position = UDim2.new(1,-36,0,0)
+MinBtn.Text = "-"
+MinBtn.TextSize = 22
+MinBtn.BackgroundColor3 = Color3.fromRGB(170,40,40)
+MinBtn.TextColor3 = Color3.new(1,1,1)
 MinBtn.Parent = TitleBar
 
-MinBtn.MouseButton1Click:Connect(function()
-    MainFrame.Visible = false
-    IconFrame.Visible = true
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1,0,1,-36)
+Content.Position = UDim2.new(0,0,0,36)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
+
+local UIList = Instance.new("UIListLayout")
+UIList.Padding = UDim.new(0,8)
+UIList.Parent = Content
+
+local Padding = Instance.new("UIPadding")
+Padding.PaddingTop = UDim.new(0,10)
+Padding.PaddingLeft = UDim.new(0,10)
+Padding.PaddingRight = UDim.new(0,10)
+Padding.Parent = Content
+
+-- BUTTON FACTORY
+local function Button(text, callback)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1,0,0,40)
+    b.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    b.Text = text
+    b.TextColor3 = Color3.new(1,1,1)
+    b.Font = Enum.Font.SourceSans
+    b.TextSize = 16
+    b.Parent = Content
+
+    b.MouseButton1Click:Connect(function()
+        if callback then callback() end
+    end)
+end
+
+-- 🔗 CONNECT THESE TO YOUR EXISTING LOGIC
+Button("ESP", function()
+    Config.ESP_Enabled = not Config.ESP_Enabled
 end)
 
-IconButton.MouseButton1Click:Connect(function()
-    IconFrame.Visible = false
-    MainFrame.Visible = true
+Button("Auto Fire", function()
+    Config.AutoFire = not Config.AutoFire
+end)
+
+Button("Close", function()
+    ScreenGui:Destroy()
+end)
+
+local minimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    Content.Visible = not minimized
+    MinBtn.Text = minimized and "+" or "-"
+end)
+
+-- DRAG (MOBILE SAFE)
+local dragging, dragStart, startPos
+
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if dragging and (
+        input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseMovement
+    ) then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
 end)
 
 ---------------------------------------------------------------------
