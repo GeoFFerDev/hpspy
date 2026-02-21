@@ -1,4 +1,4 @@
--- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v5.7
+-- BLOXSTRIKE VELOCITY SUITE (MAX SPEED EDITION) - v5.8
 -- Features:
 --   • Full Body ESP       — proximity-sorted highlights, 10 max, dynamic FPS scaling
 --   • Boost AutoFire      — native gc injection, 4-pass broad field scan
@@ -6,6 +6,21 @@
 --                           wall bypass, full recoil suppression)
 --   • Zero Spread         — hooks applySpread or Bullet.Spread object via gc scan
 --   • Infinite Ammo       — pins Rounds = Capacity on live weapon object at 20 Hz
+--   • Speed Boost         — sets Humanoid.WalkSpeed = 32 with keepalive loop (default ~17-20)
+--   • Rapid Fire          — lowers Properties.FireRate to 0.05s (~20 shots/sec), saves + restores
+--
+-- v5.8 Changes vs v5.7:
+--   • ADDED: Speed Boost (Button 5)
+--       Finds LocalPlayer.Character.Humanoid and sets WalkSpeed = 32.
+--       A keepalive loop re-applies every 0.5s in case the game resets it on equip/respawn.
+--       Client-side only — no packets sent, no server writes. Safe.
+--
+--   • ADDED: Rapid Fire (Button 6)
+--       Scans gc for the live weapon Properties table (identified by FireRate + DamagePerPart).
+--       Saves the original FireRate, then sets it to 0.05 (~20 shots/sec).
+--       Restores on toggle OFF. Does NOT touch Penetration, WalkSpeed, or any other field.
+--       The client shoot loop gates fire timing from this value. Kept at 0.05 (not 0.001)
+--       to stay well under the server-side ByteNet rate limiter.
 --
 -- v5.7 Changes vs v5.6:
 --   • REMOVED: Hitbox Expander.
@@ -371,7 +386,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- 8. UI   (5 buttons × 47px spacing + 8px top = 243px content + 30px title = 273px → 285px)
+-- 8. UI   (7 buttons × 47px spacing + 8px top = 337px content + 30px title = 367px → 379px)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.ResetOnSpawn = false
@@ -397,7 +412,7 @@ IconButton.Parent           = IconFrame
 Instance.new("UICorner", IconButton).CornerRadius = UDim.new(1, 0)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size             = UDim2.new(0, 220, 0, 285)
+MainFrame.Size             = UDim2.new(0, 220, 0, 379)
 MainFrame.Position         = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel  = 0
@@ -709,6 +724,120 @@ AmmoBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
-print("[Bloxstrike] v5.7 Loaded")
-print("  Buttons: ESP | AutoFire | Velocity(x65) | ZeroSpread | InfiniteAmmo")
+-- BUTTON 5 — Speed Boost
+--
+-- Sets Humanoid.WalkSpeed = SPEED_TARGET on the local character.
+-- BloxStrike default is weapon-dependent (AWP = 16.16, MAC-10 = 19.39 etc.).
+-- A keepalive loop re-applies every 0.5s so weapon equip/respawn
+-- doesn't silently reset it back to normal.
+-- 100% client-side, zero packets sent.
+-- =========================================================================
+local SPEED_TARGET = 32      -- studs/second.  Default range: 16-20.
+local speedActive  = false
+local speedThread  = nil
+
+local function ApplySpeed()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.WalkSpeed = SPEED_TARGET end
+end
+
+local function RestoreSpeed()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.WalkSpeed = 16 end  -- Roblox default fallback
+end
+
+local SpeedBtn = MakeButton("Speed Boost", 5, COLOR_IDLE)
+
+SpeedBtn.MouseButton1Click:Connect(function()
+    speedActive = not speedActive
+
+    if speedActive then
+        if speedThread then task.cancel(speedThread) end
+        speedThread = task.spawn(function()
+            while speedActive do
+                pcall(ApplySpeed)
+                task.wait(0.5)
+            end
+        end)
+        print("[Bloxstrike] Speed Boost ON — WalkSpeed: " .. SPEED_TARGET)
+    else
+        if speedThread then task.cancel(speedThread); speedThread = nil end
+        pcall(RestoreSpeed)
+        print("[Bloxstrike] Speed Boost OFF")
+    end
+
+    SpeedBtn.Text             = "Speed Boost: " .. (speedActive and "ON" or "OFF")
+    SpeedBtn.BackgroundColor3 = speedActive and COLOR_ON or COLOR_IDLE
+end)
+
+-- =========================================================================
+-- BUTTON 6 — Rapid Fire
+--
+-- Finds the live weapon Properties table in gc by requiring BOTH:
+--   (a) a numeric FireRate field in the realistic range 0.01–5.0 seconds
+--   (b) a DamagePerPart sub-table (confirms it's a weapon, not something else)
+-- Saves the original FireRate, sets it to RAPID_RATE, restores on toggle OFF.
+-- Only touches FireRate — no other fields modified.
+-- Kept at 0.05 (20 shots/sec) to stay under the ByteNet server rate limiter.
+-- =========================================================================
+local RAPID_RATE   = 0.05    -- seconds between shots.  Do not go below 0.03.
+local rapidActive  = false
+local rapidRef     = nil     -- { tbl, field, orig }
+
+local FIRERATE_NAMES = {
+    "FireRate", "fireRate", "ShootDelay", "shootDelay",
+    "AttackSpeed", "attackSpeed", "ShotDelay", "shotDelay",
+}
+
+local function FindFireRateEntry()
+    if rapidRef then return rapidRef end
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table"
+        and rawget(v, "DamagePerPart") ~= nil then   -- must be a weapon Properties table
+            for _, fname in ipairs(FIRERATE_NAMES) do
+                local cur = rawget(v, fname)
+                if type(cur) == "number" and cur > 0.01 and cur < 5.0 then
+                    rapidRef = { tbl = v, field = fname, orig = cur }
+                    return rapidRef
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local RapidBtn = MakeButton("Rapid Fire", 6, COLOR_IDLE)
+
+RapidBtn.MouseButton1Click:Connect(function()
+    rapidActive = not rapidActive
+
+    local entry = FindFireRateEntry()
+    if entry then
+        if rapidActive then
+            entry.tbl[entry.field] = RAPID_RATE
+            print("[Bloxstrike] Rapid Fire ON — FireRate: " .. RAPID_RATE
+                  .. " (was " .. entry.orig .. ")")
+        else
+            entry.tbl[entry.field] = entry.orig
+            rapidRef = nil   -- force re-scan next time (catches weapon swaps)
+            print("[Bloxstrike] Rapid Fire OFF — FireRate restored to " .. entry.orig)
+        end
+    else
+        warn("[Bloxstrike] FireRate table not found. Equip a weapon and try again.")
+        rapidActive = not rapidActive   -- revert toggle
+    end
+
+    RapidBtn.Text             = "Rapid Fire: " .. (rapidActive and "ON" or "OFF")
+    RapidBtn.BackgroundColor3 = rapidActive and COLOR_ON or COLOR_IDLE
+end)
+
+-- =========================================================================
+print("[Bloxstrike] v5.8 Loaded")
+print("  Buttons: ESP | AutoFire | Velocity(x65) | ZeroSpread | InfiniteAmmo | SpeedBoost | RapidFire")
 print("  Hitbox removed — server validates Direction vs Hit geometry (unbeatable)")
