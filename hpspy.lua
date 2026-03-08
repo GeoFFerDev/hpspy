@@ -1623,123 +1623,195 @@ btnUndo.MouseButton1Click:Connect(function()
     FlashBtn(btnUndo, Color3.fromRGB(90, 90, 100))
 end)
 
-
--- ── Zone Dodge ────────────────────────────────────────────────
--- WHAT WAS WRONG WITH ZoneDodge:
--- Kill zones on Bloxstrike use ZonePlus — a POSITIONAL detection
--- library that checks if HumanoidRootPart.CENTRE is inside a volume
--- using workspace:GetPartsInPart() every Heartbeat, server-side.
--- CanCollide=false has ZERO effect on this. It fires regardless.
---
--- HOW ZONE DODGE WORKS:
--- Zone kills are map-specific — Mirage puts kill volumes at a lower
--- Y than Dust2. The zone triggers when HRP.Position.Y enters the
--- volume. Our defence: watch Humanoid.Health for any sudden drop
--- (zone deal lethal damage in 1-2 ticks). On the very first drop
--- we immediately spawn a thick escape platform 8 studs ABOVE the
--- character so they can jump up and out of the zone volume before
--- the next server poll (~16ms). Since ZonePlus Centre detection
--- checks HRP.Position, gaining ~8 studs of height exits most
--- kill volumes (they're typically 4-6 studs tall).
--- Simultaneously we spawn a box BELOW as a floor to land on
--- if the upward escape fails.
---
--- This works because:
---   1. First zone damage tick fires  (can't prevent it)
---   2. Client gets Health property update within ~1 frame
---   3. We spawn escape boxes instantly (client-side, zero lag)
---   4. Player jumps up onto the escape box → exits zone volume
---   5. Server's next ZonePlus poll (~16ms) sees HRP outside zone
---   6. No more damage
-
-local zdActive      = false
-local zd_lastHealth = 100
-local zd_char_conn  = nil
-local zd_debounce   = false   -- prevent spawning multiple times per hit
-
-local function SpawnEscapePlatform(hrp)
-    if zd_debounce then return end
-    zd_debounce = true
-
-    local px, py, pz = hrp.Position.X, hrp.Position.Y, hrp.Position.Z
-
-    -- Platform 8 studs ABOVE — step up onto it to exit zone volume
-    local top = Instance.new("Part")
-    top.Size          = Vector3.new(10, 0.8, 10)
-    top.CFrame        = CFrame.new(px, py + 8, pz)
-    top.Anchored      = true
-    top.CanCollide    = true
-    top.CastShadow    = false
-    top.Material      = Enum.Material.SmoothPlastic
-    top.Color         = Color3.fromRGB(255, 80, 80)
-    top.Transparency  = 0.3
-    top.TopSurface    = Enum.SurfaceType.Smooth
-    top.BottomSurface = Enum.SurfaceType.Smooth
-    top.Parent        = workspace
-
-    -- Floor 2 studs BELOW — safety net if jump isn't fast enough
-    local floor = Instance.new("Part")
-    floor.Size         = Vector3.new(10, 0.8, 10)
-    floor.CFrame       = CFrame.new(px, py - 2, pz)
-    floor.Anchored     = true
-    floor.CanCollide   = true
-    floor.CastShadow   = false
-    floor.Material     = Enum.Material.SmoothPlastic
-    floor.Color        = Color3.fromRGB(255, 140, 30)
-    floor.Transparency = 0.3
-    floor.TopSurface   = Enum.SurfaceType.Smooth
-    floor.BottomSurface = Enum.SurfaceType.Smooth
-    floor.Parent       = workspace
-
-    -- Clean up after 6 seconds
-    task.delay(6, function()
-        if top   and top.Parent   then top:Destroy()   end
-        if floor and floor.Parent then floor:Destroy() end
-    end)
-    -- Reset debounce after 1.5s
-    task.delay(1.5, function() zd_debounce = false end)
-end
-
-local function AttachZoneDodge(char)
-    if zd_char_conn then zd_char_conn:Disconnect(); zd_char_conn = nil end
-    local hum = char:WaitForChild("Humanoid", 5)
-    local hrp = char:WaitForChild("HumanoidRootPart", 5)
-    if not hum or not hrp then return end
-    zd_lastHealth = hum.Health
-    zd_char_conn = hum:GetPropertyChangedSignal("Health"):Connect(function()
-        if not zdActive then return end
-        local newHP = hum.Health
-        local drop  = zd_lastHealth - newHP
-        zd_lastHealth = newHP
-        -- Any damage while enabled triggers escape — even 1hp drop
-        if drop > 0 and newHP > 0 then
-            SpawnEscapePlatform(hrp)
-        end
-    end)
-end
-
-local function StartZoneDodge()
-    zd_debounce = false
-    if LocalPlayer.Character then AttachZoneDodge(LocalPlayer.Character) end
-end
-
-local function StopZoneDodge(keepFlag)
-    if not keepFlag then zdActive = false end
-    zd_debounce = false
-    if zd_char_conn then zd_char_conn:Disconnect(); zd_char_conn = nil end
-end
-
-LocalPlayer.CharacterRemoving:Connect(function()
-    zd_lastHealth = 100; zd_debounce = false
-end)
-
-Section(Tab4, "  ◆ ZONE DODGE")
-FluentToggle(Tab4, "Zone Dodge",
-    "On any damage: escape platforms spawn above + below you", function(v)
-    zdActive = v
-    if v then StartZoneDodge() else StopZoneDodge() end
+Section(Tab4, "  ◆ FALL CUSHION")
+FluentToggle(Tab4, "Fall Cushion", "Auto-catch boxes when falling fast — prevents wall-top death", function(v)
+    fallCushionActive = v
+    if v then StartFallCushion() else StopFallCushion() end
     return v
 end)
+
+--  PLATFORM SPAWNER  (client-only — zero replication, zero ban risk)
+-- ─────────────────────────────────────────────────────────────
+-- Parts created on the client NEVER replicate to the server in Roblox.
+-- The server's workspace.ChildAdded only watches for "Map" (confirmed dump).
+-- So these boxes are 100% local — solid to walk on, invisible to BAC.
+--
+-- Controls:
+--   [E]           — drop a box one step in front + slightly above the player
+--   [Q]           — remove the most recently placed box (undo)
+--   Tab4 button   — remove ALL boxes at once
+--   Slider        — set box size (small stepping stones → wide platforms)
+--   Toggle        — enable/disable E key (so you can still type E in chat)
+
+local spawnedBoxes  = {}          -- ordered list of all placed parts
+local BOX_SIZE      = 4           -- studs, controlled by slider
+local BOX_ENABLED   = false       -- only active when toggle is ON
+local BOX_COLOR     = Color3.fromRGB(80, 80, 90)   -- subtle dark colour
+local BOX_MATERIAL  = Enum.Material.SmoothPlastic
+local BOX_TRANS     = 0.35        -- semi-transparent so it doesn't block view
+
+-- Where to place: directly in front of the character, flush with their feet + 1 stud up
+local function GetPlacePosition()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    -- Step 1.5× box-widths ahead so you land on the edge, not in the middle
+    local ahead  = hrp.CFrame.LookVector * (BOX_SIZE * 1.2)
+    local origin = hrp.Position + ahead
+    -- Snap Y so the top of the box is level with character feet
+    local feetY  = hrp.Position.Y - 3   -- HRP is ~3 studs above feet
+    local boxTopY = feetY + BOX_SIZE / 2
+    -- If a previous box exists nearby, stack on top of it instead
+    if #spawnedBoxes > 0 then
+        local last = spawnedBoxes[#spawnedBoxes]
+        if last and last.Parent then
+            local dist = (Vector3.new(origin.X, 0, origin.Z)
+                        - Vector3.new(last.Position.X, 0, last.Position.Z)).Magnitude
+            if dist < BOX_SIZE * 2.5 then
+                -- Stack: place on top of the last box
+                boxTopY = last.Position.Y + last.Size.Y / 2 + BOX_SIZE / 2
+            end
+        end
+    end
+    return Vector3.new(origin.X, boxTopY, origin.Z)
+end
+
+local function SpawnBox()
+    local pos = GetPlacePosition()
+    if not pos then return end
+    local box                    = Instance.new("Part")
+    box.Name                     = "StepBox_" .. #spawnedBoxes
+    box.Size                     = Vector3.new(BOX_SIZE, BOX_SIZE * 0.45, BOX_SIZE)
+    box.Position                 = pos
+    box.Anchored                 = true        -- anchored so it doesn't fall
+    box.CanCollide               = true
+    box.CastShadow               = false
+    box.Material                 = BOX_MATERIAL
+    box.Color                    = BOX_COLOR
+    box.Transparency             = BOX_TRANS
+    box.TopSurface               = Enum.SurfaceType.Smooth
+    box.BottomSurface            = Enum.SurfaceType.Smooth
+    -- Billboard label so you can track count
+    local bb                     = Instance.new("BillboardGui", box)
+    bb.Size                      = UDim2.new(0, 40, 0, 20)
+    bb.StudsOffset               = Vector3.new(0, box.Size.Y, 0)
+    bb.AlwaysOnTop               = true
+    local lbl                    = Instance.new("TextLabel", bb)
+    lbl.Size                     = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency   = 1
+    lbl.Text                     = "#" .. (#spawnedBoxes + 1)
+    lbl.TextColor3               = Color3.fromRGB(0, 200, 140)
+    lbl.Font                     = Enum.Font.GothamBold
+    lbl.TextSize                 = 10
+    box.Parent                   = workspace
+    table.insert(spawnedBoxes, box)
+end
+
+local function RemoveLastBox()
+    if #spawnedBoxes == 0 then return end
+    local last = table.remove(spawnedBoxes)
+    if last and last.Parent then last:Destroy() end
+end
+
+local function RemoveAllBoxes()
+    for _, box in ipairs(spawnedBoxes) do
+        if box and box.Parent then box:Destroy() end
+    end
+    spawnedBoxes = {}
+end
+
+-- Keyboard support kept for PC users
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if not BOX_ENABLED then return end
+    if input.KeyCode == Enum.KeyCode.E then
+        SpawnBox()
+    elseif input.KeyCode == Enum.KeyCode.Q then
+        RemoveLastBox()
+    end
+end)
+
+-- Clean up on respawn so boxes don't float in mid-air after death
+-- platform boxes cleaned centrally on respawn
+
+-- ── Mobile HUD buttons (shown/hidden with the toggle) ─────────
+-- Two large thumb-friendly buttons anchored to the bottom-right corner
+-- of the screen, outside the main UI panel so they're always reachable
+-- while moving around in-game.
+
+local mobileHUD = Instance.new("ScreenGui", guiTarget)
+mobileHUD.Name           = "PlatformSpawnerHUD"
+mobileHUD.ResetOnSpawn   = false
+mobileHUD.IgnoreGuiInset = true
+mobileHUD.Enabled        = false   -- shown only when toggle is ON
+
+local HUD_BTN_SIZE = 68   -- px — big enough for thumbs
+
+-- PLACE button (bottom-right)
+local btnPlace = Instance.new("TextButton", mobileHUD)
+btnPlace.Size                    = UDim2.new(0, HUD_BTN_SIZE, 0, HUD_BTN_SIZE)
+btnPlace.Position                = UDim2.new(1, -(HUD_BTN_SIZE + 12), 1, -(HUD_BTN_SIZE + 12))
+btnPlace.BackgroundColor3        = Color3.fromRGB(0, 170, 120)
+btnPlace.BackgroundTransparency  = 0.15
+btnPlace.Text                    = "📦"
+btnPlace.TextSize                = 28
+btnPlace.Font                    = Enum.Font.GothamBold
+btnPlace.TextColor3              = Color3.new(1, 1, 1)
+btnPlace.AutoButtonColor         = false
+Instance.new("UICorner", btnPlace).CornerRadius = UDim.new(1, 0)
+local placeStroke = Instance.new("UIStroke", btnPlace)
+placeStroke.Color     = Color3.fromRGB(0, 200, 140)
+placeStroke.Thickness = 2
+
+-- Counter label above PLACE button
+local placeCount = Instance.new("TextLabel", btnPlace)
+placeCount.Size                  = UDim2.new(1, 0, 0, 18)
+placeCount.Position              = UDim2.new(0, 0, 0, -20)
+placeCount.BackgroundTransparency = 1
+placeCount.Text                  = "0 boxes"
+placeCount.TextColor3            = Color3.fromRGB(0, 200, 140)
+placeCount.Font                  = Enum.Font.GothamBold
+placeCount.TextSize              = 10
+
+-- UNDO button (left of PLACE)
+local btnUndo = Instance.new("TextButton", mobileHUD)
+btnUndo.Size                     = UDim2.new(0, HUD_BTN_SIZE, 0, HUD_BTN_SIZE)
+btnUndo.Position                 = UDim2.new(1, -(HUD_BTN_SIZE * 2 + 20), 1, -(HUD_BTN_SIZE + 12))
+btnUndo.BackgroundColor3         = Color3.fromRGB(50, 50, 58)
+btnUndo.BackgroundTransparency   = 0.15
+btnUndo.Text                     = "↩️"
+btnUndo.TextSize                 = 26
+btnUndo.Font                     = Enum.Font.GothamBold
+btnUndo.TextColor3               = Color3.new(1, 1, 1)
+btnUndo.AutoButtonColor          = false
+Instance.new("UICorner", btnUndo).CornerRadius = UDim.new(1, 0)
+local undoStroke = Instance.new("UIStroke", btnUndo)
+undoStroke.Color     = Color3.fromRGB(100, 100, 110)
+undoStroke.Thickness = 2
+
+-- Visual feedback: flash the button briefly on tap
+local function FlashBtn(btn, col)
+    local orig = btn.BackgroundColor3
+    btn.BackgroundColor3 = col
+    task.delay(0.12, function() btn.BackgroundColor3 = orig end)
+end
+
+btnPlace.MouseButton1Click:Connect(function()
+    if not BOX_ENABLED then return end
+    SpawnBox()
+    placeCount.Text = #spawnedBoxes .. " box" .. (#spawnedBoxes == 1 and "" or "es")
+    FlashBtn(btnPlace, Color3.fromRGB(0, 230, 160))
+end)
+
+btnUndo.MouseButton1Click:Connect(function()
+    if not BOX_ENABLED then return end
+    RemoveLastBox()
+    placeCount.Text = #spawnedBoxes .. " box" .. (#spawnedBoxes == 1 and "" or "es")
+    FlashBtn(btnUndo, Color3.fromRGB(90, 90, 100))
+end)
+
+
 
 -- ─────────────────────────────────────────────────────────────
 --  CENTRAL RESPAWN HANDLER
@@ -1755,7 +1827,6 @@ LocalPlayer.CharacterRemoving:Connect(function()
     StopNoclip(true)
     StopJumpBox(true)
     StopFallCushion(true)
-    StopZoneDodge(true)
     -- Clean up physical objects that shouldn't survive death
     CleanJumpBoxes()
     RemoveAllBoxes()
@@ -1776,7 +1847,6 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if noclipActive    then StartNoclip()                       end
     if jumpBoxActive   then StartJumpBox()                      end
     if fallCushionActive then StartFallCushion()                end
-    if zdActive         then AttachZoneDodge(char)               end
     if BOX_ENABLED     then
         -- Respawn HUD is still enabled, just update count label
         placeCount.Text = "0 boxes"
@@ -2178,9 +2248,9 @@ FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to re
 end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.6 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v7.7 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | ZoneDodge | PlatformSpawner")
+print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
