@@ -1292,8 +1292,8 @@ end)
 local jumpBoxActive  = false
 local jumpBoxConn    = nil
 local jbox_wasUp     = false
-local JBOX_HOLD      = 1.4    -- seconds before box dissolves (long enough to land)
 local JBOX_SIZE      = 7      -- wide platform so mobile landing is forgiving
+local jumpBoxList    = {}      -- all jump boxes — cleaned on respawn
 
 local function SpawnJumpBox()
     local char = LocalPlayer.Character
@@ -1315,10 +1315,8 @@ local function SpawnJumpBox()
     box.TopSurface       = Enum.SurfaceType.Smooth
     box.BottomSurface    = Enum.SurfaceType.Smooth
     box.Parent           = workspace
-
-    task.delay(JBOX_HOLD, function()
-        if box and box.Parent then box:Destroy() end
-    end)
+    -- Permanent — stays until respawn (cleaned in StopJumpBox / CharacterRemoving)
+    table.insert(jumpBoxList, box)
 end
 
 local function StartJumpBox()
@@ -1343,13 +1341,23 @@ local function StartJumpBox()
     end)
 end
 
+local function CleanJumpBoxes()
+    for _, b in ipairs(jumpBoxList) do
+        if b and b.Parent then b:Destroy() end
+    end
+    jumpBoxList = {}
+end
+
 local function StopJumpBox()
     jumpBoxActive = false
     if jumpBoxConn then jumpBoxConn:Disconnect(); jumpBoxConn = nil end
     jbox_wasUp = false
+    CleanJumpBoxes()
 end
 
-LocalPlayer.CharacterRemoving:Connect(StopJumpBox)
+LocalPlayer.CharacterRemoving:Connect(function()
+    StopJumpBox()
+end)
 
 Section(Tab4, "  ◆ JUMP BOX")
 FluentToggle(Tab4, "Jump Box", "Auto-platform at jump peak — reliable on mobile", function(v)
@@ -1375,11 +1383,11 @@ end)
 local fallCushionActive = false
 local fallCushionConn   = nil
 local fc_lastY          = math.huge
-local FC_TRIGGER_VY     = -38   -- studs/s downward to trigger a catch
-local FC_MIN_GAP        = 6     -- studs between successive cushions
+local FC_TRIGGER_VY     = -18   -- studs/s — catches early, well before lethal speed
+local FC_MIN_GAP        = 4     -- studs between successive cushions
 
 local function SpawnCushion(hrp)
-    local catchY = hrp.Position.Y - 4
+    local catchY = hrp.Position.Y - 2  -- close so character lands fast
     local box    = Instance.new("Part")
     box.Size             = Vector3.new(9, 1.2, 9)
     box.CFrame           = CFrame.new(hrp.Position.X, catchY, hrp.Position.Z)
@@ -1614,6 +1622,69 @@ btnUndo.MouseButton1Click:Connect(function()
 end)
 
 
+
+
+-- ── Health Shield ─────────────────────────────────────────────
+-- Wall-top kill zones fire via Part.Touched on the server — they
+-- deal damage directly server-side, no remote needed.  Our client
+-- cannot block the damage BUT we CAN detect the first hit (Health
+-- drops > 20 in one replication update) and instantly snap the
+-- character 10 studs downward — away from the kill zone — before
+-- the second hit arrives (100ms RTT window at your ping).
+-- Works for two-step kills. Instant one-shot kills can't be saved.
+
+local healthShieldActive = false
+local hs_lastHealth      = 100
+local hs_conn            = nil
+local hs_char_conn       = nil
+
+local function AttachHealthShield(char)
+    if hs_char_conn then hs_char_conn:Disconnect(); hs_char_conn = nil end
+    local hum = char:WaitForChild("Humanoid", 5)
+    local hrp = char:WaitForChild("HumanoidRootPart", 5)
+    if not hum or not hrp then return end
+    hs_lastHealth = hum.Health
+    hs_char_conn = hum:GetPropertyChangedSignal("Health"):Connect(function()
+        if not healthShieldActive then return end
+        local newHP  = hum.Health
+        local drop   = hs_lastHealth - newHP
+        hs_lastHealth = newHP
+        -- If health drops sharply (kill zone hit) and we're not at 0 yet
+        if drop >= 20 and newHP > 0 then
+            -- Snap down 10 studs — exits the kill zone geometry
+            local cf = hrp.CFrame
+            hrp.CFrame = CFrame.new(
+                cf.Position.X,
+                cf.Position.Y - 10,
+                cf.Position.Z
+            ) * (cf - cf.Position)
+        end
+    end)
+end
+
+local function StartHealthShield()
+    if LocalPlayer.Character then
+        AttachHealthShield(LocalPlayer.Character)
+    end
+    hs_conn = LocalPlayer.CharacterAdded:Connect(AttachHealthShield)
+end
+
+local function StopHealthShield()
+    healthShieldActive = false
+    if hs_conn then hs_conn:Disconnect(); hs_conn = nil end
+    if hs_char_conn then hs_char_conn:Disconnect(); hs_char_conn = nil end
+end
+
+LocalPlayer.CharacterRemoving:Connect(function()
+    hs_lastHealth = 100
+end)
+
+Section(Tab4, "  ◆ HEALTH SHIELD")
+FluentToggle(Tab4, "Health Shield", "Snap away from kill zones on first damage hit", function(v)
+    healthShieldActive = v
+    if v then StartHealthShield() else StopHealthShield() end
+    return v
+end)
 
 -- Wire into Tab4 UI
 Section(Tab4, "  ◆ PLATFORM SPAWNER")
@@ -2009,9 +2080,9 @@ FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to re
 end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.2 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v7.3 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | PlatformSpawner")
+print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | HealthShield | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
