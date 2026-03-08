@@ -549,7 +549,7 @@ local function FluentToggle(parent, title, desc, callback)
     return setV
 end
 
---- Adds a draggable slider (snaps to nearest 10).
+--- Adds a draggable slider (snap granularity scales with range).
 local function FluentSlider(parent, label, minV, maxV, defaultV, sweetspot, getV, setV)
     local row = Instance.new("Frame", parent)
     row.Size             = UDim2.new(0.98, 0, 0, 62)
@@ -617,7 +617,10 @@ local function FluentSlider(parent, label, minV, maxV, defaultV, sweetspot, getV
     local function updateFromPct(pct)
         pct = math.clamp(pct, 0, 1)
         local raw = minV + pct * (maxV - minV)
-        local val = math.clamp(math.round(raw / 10) * 10, minV, maxV)
+        -- Snap step scales with range: small ranges (≤20) snap to 1, medium to 5, large to 10
+        local rangeSize = maxV - minV
+        local step = rangeSize <= 20 and 1 or (rangeSize <= 100 and 5 or 10)
+        local val = math.clamp(math.round(raw / step) * step, minV, maxV)
         setV(val)
         local rp  = (val - minV) / (maxV - minV)
         fill.Size         = UDim2.new(rp, 0, 1, 0)
@@ -1228,69 +1231,6 @@ FluentSlider(Tab4, "Gravity Value", 100, 196, 140, 160,
     end
 )
 
--- ── Fly ────────────────────────────────────────────────────────
-local flyActive = false
-local flyBV     = nil
-local flyBG     = nil
-local flyConn   = nil
-local FLY_SPEED = 60   -- keep moderate — extreme speeds flag position checks
-
-local function StopFly()
-    flyActive = false
-    if flyConn then flyConn:Disconnect(); flyConn = nil end
-    if flyBV   then flyBV:Destroy();     flyBV   = nil end
-    if flyBG   then flyBG:Destroy();     flyBG   = nil end
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = false end
-    end
-end
-
-local function StartFly()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local hrp  = char:FindFirstChild("HumanoidRootPart")
-    local hum  = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
-    hum.PlatformStand = true
-    flyBV          = Instance.new("BodyVelocity", hrp)
-    flyBV.Velocity = Vector3.zero
-    flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    flyBG          = Instance.new("BodyGyro", hrp)
-    flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-    flyBG.P        = 1e4
-    flyBG.CFrame   = hrp.CFrame
-    flyActive = true
-    flyConn = RunService.Heartbeat:Connect(function()
-        if not flyActive then return end
-        local cam = Workspace.CurrentCamera
-        local cf  = cam.CFrame
-        local dir = Vector3.zero
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector  end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector  end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            dir = dir + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-        or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            dir = dir - Vector3.new(0, 1, 0)
-        end
-        flyBV.Velocity = dir.Magnitude > 0 and dir.Unit * FLY_SPEED or Vector3.zero
-        flyBG.CFrame   = CFrame.new(hrp.Position) *
-            CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
-    end)
-end
-LocalPlayer.CharacterRemoving:Connect(StopFly)
-
-Section(Tab4, "  ◆ FLY")
-FluentToggle(Tab4, "Fly", "WASD + Space/Ctrl — keep speed low to avoid pos checks", function(v)
-    if v then StartFly() else StopFly() end
-    return v
-end)
-
 -- ── Noclip ─────────────────────────────────────────────────────
 local noclipActive = false
 local noclipConn   = nil
@@ -1326,6 +1266,17 @@ FluentToggle(Tab4, "Noclip", "Heartbeat CanCollide bypass — walk through walls
     if v then StartNoclip() else StopNoclip() end
     return v
 end)
+
+Section(Tab4, "  ◆ ALTITUDE GUARD")
+FluentToggle(Tab4, "Altitude Guard", "Auto-nudge down before server kill zone fires", function(v)
+    altGuardActive = v
+    if v then StartAltGuard() else StopAltGuard() end
+    return v
+end)
+FluentSlider(Tab4, "Safe Ceiling (studs)", 50, 500, 200, 200,
+    function() return ALT_CEILING end,
+    function(v) ALT_CEILING = v end
+)
 
 -- ─────────────────────────────────────────────────────────────
 --  PLATFORM SPAWNER  (client-only — zero replication, zero ban risk)
@@ -1509,6 +1460,45 @@ btnUndo.MouseButton1Click:Connect(function()
     FlashBtn(btnUndo, Color3.fromRGB(90, 90, 100))
 end)
 
+
+
+-- ── Altitude Guard ─────────────────────────────────────────────
+-- The server has an invisible kill zone at a certain Y height.
+-- This guard runs every 0.25s and if HRP.Y exceeds the safe limit
+-- it gently nudges the character straight down, keeping them just
+-- below the boundary so the server never fires the kill.
+-- Default safe ceiling is 200 studs — adjust with the slider.
+
+local altGuardActive = false
+local altGuardConn   = nil
+local ALT_CEILING    = 200   -- studs above spawn Y — tune with slider
+
+local function StartAltGuard()
+    if altGuardConn then return end
+    altGuardConn = RunService.Heartbeat:Connect(function()
+        if not altGuardActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        if hrp.Position.Y >= ALT_CEILING then
+            -- Teleport straight down to just under the ceiling
+            hrp.CFrame = CFrame.new(
+                hrp.Position.X,
+                ALT_CEILING - 5,
+                hrp.Position.Z
+            ) * (hrp.CFrame - hrp.CFrame.Position)
+        end
+    end)
+end
+
+local function StopAltGuard()
+    altGuardActive = false
+    if altGuardConn then altGuardConn:Disconnect(); altGuardConn = nil end
+end
+
+LocalPlayer.CharacterRemoving:Connect(StopAltGuard)
+
 -- Wire into Tab4 UI
 Section(Tab4, "  ◆ PLATFORM SPAWNER")
 
@@ -1678,8 +1668,7 @@ task.spawn(function()
             if ammoActive         then feats[#feats+1] = "InfAmmo" end
             if fpsActive          then feats[#feats+1] = "FPSBoost" end
             if gravActive         then feats[#feats+1] = "LowGrav("..LOW_GRAV..")" end
-            if flyActive          then feats[#feats+1] = "Fly" end
-            if noclipActive       then feats[#feats+1] = "Noclip" end
+                    if noclipActive       then feats[#feats+1] = "Noclip" end
             PushLog("BAN", "!! BANNED: " .. name
                 .. " | ActiveFeatures: " .. (#feats > 0 and table.concat(feats,",") or "none"))
             PushLog("BAN", "Log frozen at ban moment — scroll up to see pre-ban activity")
@@ -1722,20 +1711,20 @@ end)
 -- ── 4. Feature toggle logger ───────────────────────────────────
 -- Patch each toggle so it logs when activated/deactivated.
 -- (Achieved by wrapping the toggle callbacks above — the PushLog calls
---  are inserted directly into StartFly, StopFly, StartNoclip, etc.)
+--  are inserted directly into StartNoclip, StopNoclip, etc.)
 PushLog("SYS", "Ban Logger initialised — watching remotes + velocity")
 
 Section(Tab5, "  ◆ VERSION")
-AddButton(Tab5, "v6.9  —  Velocity Suite", function() end)
+AddButton(Tab5, "v7.0  —  Velocity Suite", function() end)
 Section(Tab5, "  ◆ NOTES")
 AddButton(Tab5, "JUMP: only Low Gravity (>= 120) is safe", function() end)
 AddButton(Tab5, "BAN: see scroll panel above for pre-ban log", function() end)
 AddButton(Tab5, "VEL spikes show what BAC sees server-side", function() end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v6.9 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v7.0 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: LowGravity | Fly | Noclip | PlatformSpawner")
+print("  Tab 4: LowGravity | Noclip | AltGuard | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
