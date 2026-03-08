@@ -1267,18 +1267,69 @@ FluentToggle(Tab4, "Noclip", "Heartbeat CanCollide bypass — walk through walls
     return v
 end)
 
-Section(Tab4, "  ◆ ALTITUDE GUARD")
-FluentToggle(Tab4, "Altitude Guard", "Auto-nudge down before server kill zone fires", function(v)
-    altGuardActive = v
-    if v then StartAltGuard() else StopAltGuard() end
+-- ── Jump Box ───────────────────────────────────────────────────
+-- When you press jump, instead of touching velocity or JumpPower,
+-- we silently place an anchored platform RIGHT UNDER your feet
+-- (1 stud below HRP). The Humanoid lands on it immediately so the
+-- server only sees you standing on a surface — then we delete the
+-- box 0.6s later after you've bounced off. Repeat = infinite jumps.
+-- Box auto-cleans on death. No velocity write. No stat change.
+
+local jumpBoxActive = false
+local jumpBoxConn   = nil
+local JBOX_HOLD     = 0.55   -- seconds the box exists before dissolving
+local JBOX_SIZE     = 6      -- wide enough to always land on
+
+local function SpawnJumpBox()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local hum  = char:FindFirstChildOfClass("Humanoid")
+
+    local footY = hrp.Position.Y - 3.1   -- just below feet
+    local box   = Instance.new("Part")
+    box.Size             = Vector3.new(JBOX_SIZE, 0.4, JBOX_SIZE)
+    box.CFrame           = CFrame.new(hrp.Position.X, footY, hrp.Position.Z)
+    box.Anchored         = true
+    box.CanCollide       = true
+    box.CastShadow       = false
+    box.Material         = Enum.Material.SmoothPlastic
+    box.Color            = Color3.fromRGB(0, 200, 140)
+    box.Transparency     = 0.55
+    box.TopSurface       = Enum.SurfaceType.Smooth
+    box.BottomSurface    = Enum.SurfaceType.Smooth
+    box.Parent           = workspace
+
+    -- Dissolve after hold time
+    task.delay(JBOX_HOLD, function()
+        if box and box.Parent then box:Destroy() end
+    end)
+end
+
+local function StartJumpBox()
+    if jumpBoxConn then return end
+    jumpBoxConn = UserInputService.JumpRequest:Connect(function()
+        -- JumpRequest fires on mobile jump button AND Space bar
+        if not jumpBoxActive then return end
+        SpawnJumpBox()
+    end)
+end
+
+local function StopJumpBox()
+    jumpBoxActive = false
+    if jumpBoxConn then jumpBoxConn:Disconnect(); jumpBoxConn = nil end
+end
+
+LocalPlayer.CharacterRemoving:Connect(StopJumpBox)
+
+Section(Tab4, "  ◆ JUMP BOX")
+FluentToggle(Tab4, "Jump Box", "Spawns platform under feet on every jump tap", function(v)
+    jumpBoxActive = v
+    if v then StartJumpBox() else StopJumpBox() end
     return v
 end)
-FluentSlider(Tab4, "Safe Ceiling (studs)", 50, 500, 200, 200,
-    function() return ALT_CEILING end,
-    function(v) ALT_CEILING = v end
-)
 
--- ─────────────────────────────────────────────────────────────
 --  PLATFORM SPAWNER  (client-only — zero replication, zero ban risk)
 -- ─────────────────────────────────────────────────────────────
 -- Parts created on the client NEVER replicate to the server in Roblox.
@@ -1461,43 +1512,6 @@ btnUndo.MouseButton1Click:Connect(function()
 end)
 
 
-
--- ── Altitude Guard ─────────────────────────────────────────────
--- The server has an invisible kill zone at a certain Y height.
--- This guard runs every 0.25s and if HRP.Y exceeds the safe limit
--- it gently nudges the character straight down, keeping them just
--- below the boundary so the server never fires the kill.
--- Default safe ceiling is 200 studs — adjust with the slider.
-
-local altGuardActive = false
-local altGuardConn   = nil
-local ALT_CEILING    = 200   -- studs above spawn Y — tune with slider
-
-local function StartAltGuard()
-    if altGuardConn then return end
-    altGuardConn = RunService.Heartbeat:Connect(function()
-        if not altGuardActive then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        if hrp.Position.Y >= ALT_CEILING then
-            -- Teleport straight down to just under the ceiling
-            hrp.CFrame = CFrame.new(
-                hrp.Position.X,
-                ALT_CEILING - 5,
-                hrp.Position.Z
-            ) * (hrp.CFrame - hrp.CFrame.Position)
-        end
-    end)
-end
-
-local function StopAltGuard()
-    altGuardActive = false
-    if altGuardConn then altGuardConn:Disconnect(); altGuardConn = nil end
-end
-
-LocalPlayer.CharacterRemoving:Connect(StopAltGuard)
 
 -- Wire into Tab4 UI
 Section(Tab4, "  ◆ PLATFORM SPAWNER")
@@ -1721,10 +1735,181 @@ AddButton(Tab5, "JUMP: only Low Gravity (>= 120) is safe", function() end)
 AddButton(Tab5, "BAN: see scroll panel above for pre-ban log", function() end)
 AddButton(Tab5, "VEL spikes show what BAC sees server-side", function() end)
 
+-- ═════════════════════════════════════════════════════════════
+--  TACTICAL RADAR  (unique feature — 100% client GUI, zero network)
+-- ═════════════════════════════════════════════════════════════
+-- A small circular overhead radar in the corner of the screen.
+-- Uses the same PlayerCache the ESP already maintains — no extra
+-- scanning. Blips represent enemies; the triangle at center = you.
+-- Tap the radar panel to toggle between corner positions.
+-- Zero remotes. Zero physics. Completely invisible to BAC.
+
+local RADAR_SIZE     = 130      -- px diameter of the radar circle
+local RADAR_RANGE    = 120      -- studs captured in the radar radius
+local RADAR_ENABLED  = false
+
+-- Build the radar ScreenGui
+local radarGui = Instance.new("ScreenGui", guiTarget)
+radarGui.Name           = "TacticalRadar"
+radarGui.ResetOnSpawn   = false
+radarGui.IgnoreGuiInset = true
+radarGui.Enabled        = false
+
+-- Corner cycle: BR → BL → TL → TR
+local CORNERS = {
+    UDim2.new(1, -(RADAR_SIZE+10), 1, -(RADAR_SIZE+10)),  -- bottom-right
+    UDim2.new(0,  10,              1, -(RADAR_SIZE+10)),  -- bottom-left
+    UDim2.new(0,  10,              0,  10),               -- top-left
+    UDim2.new(1, -(RADAR_SIZE+10), 0,  10),               -- top-right
+}
+local cornerIdx = 1
+
+-- Radar backing circle
+local radarBg = Instance.new("Frame", radarGui)
+radarBg.Size                 = UDim2.new(0, RADAR_SIZE, 0, RADAR_SIZE)
+radarBg.Position             = CORNERS[cornerIdx]
+radarBg.BackgroundColor3     = Color3.fromRGB(8, 12, 10)
+radarBg.BackgroundTransparency = 0.25
+radarBg.BorderSizePixel      = 0
+Instance.new("UICorner", radarBg).CornerRadius = UDim.new(1, 0)
+local radarStroke = Instance.new("UIStroke", radarBg)
+radarStroke.Color     = Color3.fromRGB(0, 170, 120)
+radarStroke.Thickness = 1.5
+
+-- Range rings (decorative)
+for _, pct in ipairs({0.5}) do
+    local ring = Instance.new("Frame", radarBg)
+    ring.Size                  = UDim2.new(pct, 0, pct, 0)
+    ring.Position              = UDim2.new((1-pct)/2, 0, (1-pct)/2, 0)
+    ring.BackgroundTransparency = 1
+    ring.BorderSizePixel       = 0
+    local rs = Instance.new("UIStroke", ring)
+    rs.Color       = Color3.fromRGB(0, 80, 55)
+    rs.Thickness   = 1
+    Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
+end
+
+-- N cardinal label
+local northLbl = Instance.new("TextLabel", radarBg)
+northLbl.Size                 = UDim2.new(0, 16, 0, 12)
+northLbl.Position             = UDim2.new(0.5, -8, 0, 3)
+northLbl.BackgroundTransparency = 1
+northLbl.Text                 = "N"
+northLbl.TextColor3           = Color3.fromRGB(0, 170, 120)
+northLbl.Font                 = Enum.Font.GothamBold
+northLbl.TextSize             = 8
+
+-- Player triangle at center
+local selfDot = Instance.new("Frame", radarBg)
+selfDot.Size             = UDim2.new(0, 7, 0, 7)
+selfDot.Position         = UDim2.new(0.5, -3, 0.5, -3)
+selfDot.BackgroundColor3 = Color3.fromRGB(80, 220, 255)
+selfDot.BorderSizePixel  = 0
+Instance.new("UICorner", selfDot).CornerRadius = UDim.new(0, 2)
+
+-- Tap to cycle corner
+local radarBtn = Instance.new("TextButton", radarBg)
+radarBtn.Size                    = UDim2.new(1, 0, 1, 0)
+radarBtn.BackgroundTransparency  = 1
+radarBtn.Text                    = ""
+radarBtn.ZIndex                  = 10
+radarBtn.MouseButton1Click:Connect(function()
+    cornerIdx = cornerIdx % #CORNERS + 1
+    radarBg.Position = CORNERS[cornerIdx]
+end)
+
+-- Blip pool — reused every frame
+local blipPool = {}
+local function GetBlip(i)
+    if blipPool[i] then return blipPool[i] end
+    local b = Instance.new("Frame", radarBg)
+    b.Size             = UDim2.new(0, 6, 0, 6)
+    b.BorderSizePixel  = 0
+    b.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+    blipPool[i] = b
+    return b
+end
+
+local function HideBlip(b) b.Visible = false end
+
+-- Radar update loop
+local radarConn = nil
+local function StartRadar()
+    if radarConn then return end
+    radarConn = RunService.Heartbeat:Connect(function()
+        if not RADAR_ENABLED then return end
+        local myChar = LocalPlayer.Character
+        if not myChar then return end
+        local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+
+        -- Rotate so forward = up on radar
+        local myCF    = myHRP.CFrame
+        local myPos   = myHRP.Position
+        local forward = Vector3.new(myCF.LookVector.X, 0, myCF.LookVector.Z)
+
+        local blipIdx = 0
+        for p in pairs(PlayerCache) do
+            if p ~= LocalPlayer and p.Character then
+                local tHRP = p.Character:FindFirstChild("HumanoidRootPart")
+                if tHRP then
+                    local rel  = tHRP.Position - myPos
+                    local dist = Vector3.new(rel.X, 0, rel.Z).Magnitude
+                    if dist <= RADAR_RANGE then
+                        blipIdx = blipIdx + 1
+                        local blip = GetBlip(blipIdx)
+
+                        -- Rotate relative vector by inverse of player yaw
+                        local angle  = math.atan2(forward.X, forward.Z)
+                        local cos_a  = math.cos(-angle)
+                        local sin_a  = math.sin(-angle)
+                        local rx     = rel.X * cos_a - rel.Z * sin_a
+                        local rz     = rel.X * sin_a + rel.Z * cos_a
+
+                        -- Map to 0-1 radar coords
+                        local nx = 0.5 + (rx / RADAR_RANGE) * 0.5
+                        local ny = 0.5 - (rz / RADAR_RANGE) * 0.5
+                        nx = math.clamp(nx, 0.04, 0.94)
+                        ny = math.clamp(ny, 0.04, 0.94)
+
+                        blip.Position = UDim2.new(nx, -3, ny, -3)
+                        -- Color by distance: close = bright red, far = dark orange
+                        local t = math.clamp(dist / RADAR_RANGE, 0, 1)
+                        blip.BackgroundColor3 = Color3.fromRGB(
+                            255,
+                            math.floor(60 + t * 80),
+                            0)
+                        blip.Visible = true
+                    end
+                end
+            end
+        end
+
+        -- Hide unused blips
+        for i = blipIdx + 1, #blipPool do HideBlip(blipPool[i]) end
+    end)
+end
+
+local function StopRadar()
+    RADAR_ENABLED = false
+    if radarConn then radarConn:Disconnect(); radarConn = nil end
+    for _, b in ipairs(blipPool) do HideBlip(b) end
+end
+
+-- Wire into Tab1 (alongside ESP — they share the same PlayerCache)
+Section(Tab1, "  ◆ RADAR")
+FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to reposition", function(v)
+    RADAR_ENABLED     = v
+    radarGui.Enabled  = v
+    if v then StartRadar() else StopRadar() end
+    return v
+end)
+
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.0 Loaded — UI: Fluent Template")
-print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
+print("[Bloxstrike] v7.1 Loaded — UI: Fluent Template")
+print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: LowGravity | Noclip | AltGuard | PlatformSpawner")
+print("  Tab 4: LowGravity | Noclip | JumpBox | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
