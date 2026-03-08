@@ -697,7 +697,7 @@ end
 local Tab1 = CreateTab("Tab 1", "🏁")
 local Tab2 = CreateTab("Tab 2", "🚜")
 local Tab3 = CreateTab("Tab 3", "🚗")
-local Tab4 = CreateTab("Tab 4", "🌍")
+local Tab4 = CreateTab("Movement", "🦅")
 local Tab5 = CreateTab("Tab 5", "⚙️")
 
 -- ─────────────────────────────────────────────────────────────
@@ -1182,8 +1182,133 @@ FluentToggle(Tab3, "FPS Boost", "Kills shadows, atmosphere, particles + Level01"
 end)
 
 -- ─────────────────────────────────────────────────────────────
---  TAB 4  — (free for future features)
+--  TAB 4  — Movement  (Jump Power + Fly)
 -- ─────────────────────────────────────────────────────────────
+
+-- ── Jump Power ────────────────────────────────────────────────
+local jumpPower  = 50   -- Roblox default
+local jumpConn   = nil
+
+local function ApplyJump()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.UseJumpPower = true
+        hum.JumpPower    = jumpPower
+    end
+end
+
+-- Re-apply on respawn so the value survives death
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.1)
+    ApplyJump()
+end)
+
+Section(Tab4, "  ◆ JUMP")
+
+FluentSlider(Tab4, "Jump Power", 50, 500, 50, 200,
+    function() return jumpPower end,
+    function(v)
+        jumpPower = v
+        ApplyJump()
+    end
+)
+
+-- ── Fly ───────────────────────────────────────────────────────
+local flyActive  = false
+local flyBV      = nil   -- BodyVelocity
+local flyBG      = nil   -- BodyGyro
+local flyConn    = nil
+local FLY_SPEED  = 80    -- studs/s — feel free to expose via slider
+
+local function StopFly()
+    flyActive = false
+    if flyConn  then flyConn:Disconnect();  flyConn  = nil end
+    if flyBV    then flyBV:Destroy();       flyBV    = nil end
+    if flyBG    then flyBG:Destroy();       flyBG    = nil end
+    -- restore gravity via Humanoid
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end
+end
+
+local function StartFly()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    local hum  = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    -- PlatformStand disables built-in movement so we own velocity fully
+    hum.PlatformStand = true
+
+    flyBV              = Instance.new("BodyVelocity", hrp)
+    flyBV.Velocity     = Vector3.zero
+    flyBV.MaxForce     = Vector3.new(1e5, 1e5, 1e5)
+
+    flyBG              = Instance.new("BodyGyro", hrp)
+    flyBG.MaxTorque    = Vector3.new(1e5, 1e5, 1e5)
+    flyBG.P            = 1e4
+    flyBG.CFrame       = hrp.CFrame
+
+    flyActive = true
+
+    flyConn = RunService.Heartbeat:Connect(function()
+        if not flyActive then return end
+        local cam = Workspace.CurrentCamera
+        local cf  = cam.CFrame
+        local dir = Vector3.zero
+
+        -- WASD mapped through UserInputService
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            dir = dir + cf.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            dir = dir - cf.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            dir = dir - cf.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            dir = dir + cf.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            dir = dir + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+        or UserInputService:IsKeyDown(Enum.KeyCode.C) then
+            dir = dir - Vector3.new(0, 1, 0)
+        end
+
+        if dir.Magnitude > 0 then
+            flyBV.Velocity = dir.Unit * FLY_SPEED
+        else
+            flyBV.Velocity = Vector3.zero
+        end
+
+        -- Keep upright — face camera yaw
+        flyBG.CFrame = CFrame.new(hrp.Position) *
+            CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
+    end)
+end
+
+-- Auto-stop on death / respawn
+LocalPlayer.CharacterRemoving:Connect(StopFly)
+
+Section(Tab4, "  ◆ FLY")
+
+FluentToggle(Tab4, "Fly", "WASD + Space/Ctrl  |  " .. FLY_SPEED .. " studs/s", function(v)
+    if v then
+        StartFly()
+        return true
+    else
+        StopFly()
+        return false
+    end
+end)
 
 -- ─────────────────────────────────────────────────────────────
 --  TAB 5  — Info / Notes
@@ -1196,8 +1321,9 @@ AddButton(Tab5, "Infinite Ammo: Heartbeat, IsReloading fix", function() end)
 AddButton(Tab5, "FPS Boost: shadows off + Level01", function() end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v6.2 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v6.3 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
+print("  Tab 4: JumpPower | Fly")
 print("  Tab 5: Info")
