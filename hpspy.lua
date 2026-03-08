@@ -1137,27 +1137,59 @@ local function RestoreFPS()
 end
 
 -- ─────────────────────────────────────────────────────────────────────────
---  AUTO HEADSHOT
+--  AUTO HEADSHOT  (v6.1 rewrite — no shake)
 -- ─────────────────────────────────────────────────────────────────────────
-local hsActive    = false
-local hsConn      = nil
-local _origCamT   = nil
+-- Root causes of the v6.0 shake, all fixed here:
+--
+-- BUG 1 — CameraType = Scriptable
+--   Setting Scriptable kills Roblox's own camera loop entirely.
+--   When zero enemies are present the camera freezes in place (position
+--   tracking, character-follow, viewmodel bob all stop). The moment an
+--   enemy spawns our lerp fires from that stale frozen position → violent
+--   lurch / shake.  FIX: never touch CameraType. Keep it Custom so the
+--   game handles all position/character-follow normally.
+--
+-- BUG 2 — RenderStepped fires BEFORE Roblox's camera update
+--   Roblox's camera module runs at RenderPriority.Camera (200).
+--   A plain RenderStepped connection runs at priority 0 — BEFORE the
+--   game's camera. Order was: our write → game overwrites → we read the
+--   overwritten value next frame → feedback oscillation every frame.
+--   FIX: use BindToRenderStep at Camera.Value + 1 (201) so we execute
+--   AFTER the game finishes its camera update. We read the final position,
+--   apply our rotation adjustment, and nothing overwrites it afterwards.
+--
+-- BUG 3 — CFrame:Lerp interpolates position as well as rotation
+--   CFrame.lookAt(camPos, head) + CFrame:Lerp drifts the position
+--   component toward the lookAt origin, fighting the game's tracking.
+--   FIX: only rotate. Grab camPos from the game's final CFrame, slerp
+--   only the LookVector, then write CFrame.lookAt(camPos, camPos+newLook).
+--   Position is always exactly what the game computed; only the aim
+--   direction is adjusted.
+--
+-- ADDITIONAL: dead-zone guard — if we're already within DEAD_ZONE_ANGLE
+--   radians of the target (~1.5°) we skip the write entirely.  This
+--   eliminates micro-jitter from floating-point noise when locked on.
+
+local DEAD_ZONE   = math.rad(1.5)   -- skip write if aim is already this close
+
+local hsActive = false
 
 local function StartHeadshot()
-    if hsConn then hsConn:Disconnect() end
-    local camRef = workspace.CurrentCamera
-    _origCamT = camRef.CameraType
-    pcall(function() camRef.CameraType = Enum.CameraType.Scriptable end)
+    -- Unbind any previous binding (safe no-op if not bound)
+    pcall(function() RunService:UnbindFromRenderStep("HS_Snap") end)
 
-    hsConn = RunService.RenderStepped:Connect(function(dt)
+    -- Run at Camera priority + 1 so we always fire AFTER Roblox's camera update
+    RunService:BindToRenderStep("HS_Snap", Enum.RenderPriority.Camera.Value + 1, function(dt)
         if not hsActive then return end
         local myChar = LocalPlayer.Character
         if not myChar then return end
+
         local camNow  = workspace.CurrentCamera
-        local camCF   = camNow.CFrame
-        local camPos  = camCF.Position
+        local camCF   = camNow.CFrame           -- game's final CFrame for this frame
+        local camPos  = camCF.Position          -- position: from game, untouched
         local camLook = camCF.LookVector
 
+        -- ── Find best head target ────────────────────────────────────
         local best, bestScore = nil, -math.huge
         for _, p in ipairs(Players:GetPlayers()) do
             if IsEnemy(p) and p.Character then
@@ -1165,7 +1197,7 @@ local function StartHeadshot()
                 local head = char:FindFirstChild("Head")
                 local hum  = char:FindFirstChildOfClass("Humanoid")
                 if head and hum and hum.Health > 0 and char:GetAttribute("Dead") ~= true then
-                    local toH = head.Position - camPos
+                    local toH  = head.Position - camPos
                     local dist = toH.Magnitude
                     if dist > 0.5 and dist < 1500 then
                         local dot = camLook:Dot(toH.Unit)
@@ -1178,19 +1210,29 @@ local function StartHeadshot()
             end
         end
 
-        if best then
-            local target = CFrame.lookAt(camPos, best.Position)
-            local lerp   = math.min(1, HEADSHOT_LERP * (dt * 60))
-            camNow.CFrame = camCF:Lerp(target, lerp)
-        end
+        -- ── No target → do absolutely nothing, game camera runs free ──
+        if not best then return end
+
+        -- ── Compute desired look direction ────────────────────────────
+        local toHead      = (best.Position - camPos)
+        local desiredLook = toHead.Unit
+
+        -- Dead-zone: skip write if we're already close enough
+        local aimDot = math.clamp(camLook:Dot(desiredLook), -1, 1)
+        if math.acos(aimDot) < DEAD_ZONE then return end
+
+        -- ── Slerp ONLY the look direction (no position drift) ─────────
+        local factor  = math.min(1, HEADSHOT_LERP * (dt * 60))
+        local newLook = camLook:Lerp(desiredLook, factor).Unit
+
+        -- Preserve game position exactly; only write a new look direction
+        camNow.CFrame = CFrame.lookAt(camPos, camPos + newLook)
     end)
 end
 
 local function StopHeadshot()
-    if hsConn then hsConn:Disconnect(); hsConn = nil end
-    pcall(function()
-        workspace.CurrentCamera.CameraType = _origCamT or Enum.CameraType.Custom
-    end)
+    pcall(function() RunService:UnbindFromRenderStep("HS_Snap") end)
+    -- CameraType was never changed, nothing to restore
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -1220,7 +1262,7 @@ FluentToggle(Tab1, "Max Velocity", "Snap aimbot — PullStrength 65, head target
     return false
 end)
 
-FluentToggle(Tab1, "Auto Headshot", "RenderStepped hard-snap to enemy Head", function(v)
+FluentToggle(Tab1, "Auto Headshot", "BindToRenderStep — smooth, no shake", function(v)
     hsActive = v
     if v then StartHeadshot()
     else       StopHeadshot() end
@@ -1297,7 +1339,7 @@ AddButton(Tab5, "v6.0  —  Velocity Suite", function() end)
 Section(Tab5, "  ◆ NOTES")
 AddButton(Tab5, "RapidFire & SpeedBoost REMOVED", function() end)
 AddButton(Tab5, "Infinite Ammo: fixed all weapons", function() end)
-AddButton(Tab5, "Auto Headshot: head snap (RenderStepped)", function() end)
+AddButton(Tab5, "Auto Headshot: BindToRenderStep, no shake", function() end)
 AddButton(Tab5, "FPS Boost: shadows off + Level01", function() end)
 
 -- ── Done ─────────────────────────────────────────────────────
