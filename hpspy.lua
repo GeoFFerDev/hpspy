@@ -763,7 +763,6 @@ local LocalPlayer = Players.LocalPlayer
 -- ── Config ────────────────────────────────────────────────────────────────
 local ESPConfig = { Enabled = true, Color = Color3.fromRGB(255, 0, 0) }
 local MAX_HIGHLIGHTS  = 10
-local HEADSHOT_LERP   = 0.28   -- snap strength per frame (framerate-independent)
 local FPS_LOOP_RATE   = 2.0    -- seconds between particle kill sweeps
 
 -- ── Shared state ──────────────────────────────────────────────────────────
@@ -771,7 +770,6 @@ local Highlights       = {}
 local PlayerCache      = {}
 local CharRemovedConns = {}
 local VelocityRef      = nil
-local AutoFireRef      = nil
 
 -- ─────────────────────────────────────────────────────────────────────────
 --  HELPERS: team check, distance
@@ -806,54 +804,6 @@ local function FindVelocityTable()
         and rawget(v, "RecoilAssist")   and rawget(v, "Friction") then
             VelocityRef = v ; return v
         end
-    end
-end
-
-local AF_ENABLE = {"TriggerEnabled","AutoFireEnabled","AutoFire","FireMode",
-    "triggerEnabled","autoFireEnabled","autoFire","fireMode","Autofire","Trigger",
-    "AutoShoot","autoShoot","EnableAutoFire","enableAutoFire","Enable"}
-local AF_DELAY  = {"Sensitivity","ReactionTime","FireDelay","TriggerDelay",
-    "AutoFireDelay","ShootDelay","DelayBetweenShots","ShotDelay","sensitivity",
-    "reactionTime","fireDelay","triggerDelay","autoFireDelay","shootDelay",
-    "delayBetweenShots","shotDelay","Delay","delay","Rate","rate","Interval","interval"}
-local AF_RANGE  = {"TriggerAngle","TriggerDistance","DetectionRadius","AimAngle",
-    "triggerAngle","triggerDistance","detectionRadius","aimAngle","Range","range",
-    "Radius","radius","Angle","angle","MaxAngle","maxAngle","Distance","distance"}
-
-local function HasAny(t, fields)
-    for _, f in ipairs(fields) do if rawget(t, f) ~= nil then return true end end
-    return false
-end
-
-local function FindAutoFireTable()
-    if AutoFireRef then return AutoFireRef end
-    if VelocityRef then
-        for _, val in pairs(VelocityRef) do
-            if type(val) == "table" and (HasAny(val, AF_ENABLE) or HasAny(val, AF_DELAY)) then
-                AutoFireRef = val ; return val
-            end
-        end
-    end
-    local gc = getgc(true)
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table" and v ~= VelocityRef then
-            if HasAny(v, AF_ENABLE) and HasAny(v, AF_DELAY) then AutoFireRef = v; return v end
-        end
-    end
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table" and v ~= VelocityRef then
-            if HasAny(v, AF_ENABLE) then AutoFireRef = v; return v end
-            local n = 0
-            for _, f in ipairs(AF_DELAY) do
-                if rawget(v, f) ~= nil then n = n + 1 end
-                if n >= 2 then AutoFireRef = v; return v end
-            end
-        end
-    end
-    if VelocityRef and (HasAny(VelocityRef, AF_ENABLE) or HasAny(VelocityRef, AF_DELAY)) then
-        AutoFireRef = VelocityRef ; return VelocityRef
     end
 end
 
@@ -906,21 +856,6 @@ local function ApplyVelocityOFF(v)
     v.Friction.BubbleRadius        = 5.0
     v.Friction.MinSensitivity      = 1.0
     v.RecoilAssist.ReductionAmount = 0.0
-end
-
--- ─────────────────────────────────────────────────────────────────────────
---  AUTOFIRE
--- ─────────────────────────────────────────────────────────────────────────
-local function ApplyAutoFireON(v)
-    for _, f in ipairs(AF_ENABLE) do local c = rawget(v,f); if type(c)=="boolean" then v[f]=true end end
-    for _, f in ipairs(AF_DELAY)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(f=="Sensitivity" or f=="sensitivity") and 1.0 or 0.0 end end
-    for _, f in ipairs(AF_RANGE)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(string.find(string.lower(f),"angle") and 6.28) or 10000 end end
-end
-
-local function ApplyAutoFireOFF(v)
-    for _, f in ipairs(AF_ENABLE) do local c = rawget(v,f); if type(c)=="boolean" then v[f]=false end end
-    for _, f in ipairs(AF_DELAY)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(f=="Sensitivity" or f=="sensitivity") and 0.5 or 0.1 end end
-    for _, f in ipairs(AF_RANGE)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(string.find(string.lower(f),"angle") and 1.0) or 300 end end
 end
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -1033,37 +968,73 @@ local function FindLiveWeaponGC()
     return nil, nil, nil
 end
 
-local ammoActive = false
-local ammoThread = nil
+local ammoActive  = false
+local ammoConn    = nil   -- Heartbeat connection handle
 
-local function RunAmmoThread()
+-- ── Why Heartbeat instead of task.wait(0.05): ────────────────────────────
+-- shoot() has TWO gates that block shots when ammo is "empty":
+--
+--   Gate 1:  if p_u_109.Rounds <= 0 then p_u_109:reload() ; return end
+--            → triggers reload, sets IsReloading = true
+--
+--   Gate 2:  elseif p_u_109.IsReloading then return end
+--            → every subsequent shot attempt returns early — no packet sent
+--
+-- At 50ms intervals our old thread was too slow. A fast weapon fires at
+-- ~100ms per shot, so Rounds could hit 0 between two of our resets.
+-- Once reload() ran, IsReloading stayed true until the full animation
+-- finished (1-2s) — during which the gun "fired" (animation/sound) but
+-- the actual RemoteEvent to the server was never sent → no damage.
+--
+-- Fix: run on Heartbeat (every frame, ~16ms) so Rounds NEVER reaches 0
+-- between shots. Also write IsReloading = false every frame to abort any
+-- reload that slipped through. Additionally keep Capacity topped up so
+-- the reserve counter never runs dry either.
+
+local function RunAmmoHook()
     local ic = GetIC()
-    while ammoActive do
-        local found = false
+    ammoConn = RunService.Heartbeat:Connect(function()
+        if not ammoActive then return end
+
+        -- PATH 1: InventoryController.getCurrentEquipped() — zero GC cost
+        local handled = false
         if ic then
             local ok, eq = pcall(ic.getCurrentEquipped)
             if ok and eq then
                 for _, pr in ipairs(AMMO_PAIRS) do
                     local a, m = pr[1], pr[2]
                     local cap = rawget(eq, m)
-                    if type(cap)=="number" and cap > 0 then
-                        pcall(function() eq[a] = cap end)
-                        found = true ; break
+                    if type(cap) == "number" and cap > 0 then
+                        -- Reset current-mag to full; also bump reserve
+                        local magSize = (rawget(eq,"Properties") and rawget(eq.Properties,"Rounds"))
+                                        or cap
+                        pcall(function()
+                            eq[a] = magSize          -- Rounds = full magazine
+                            eq[m] = 9999             -- Capacity (reserve) = effectively infinite
+                            eq.IsReloading  = false  -- abort reload gate
+                            eq.IsBurstShooting = false
+                        end)
+                        handled = true ; break
                     end
                 end
             end
         end
-        if not found then
+
+        -- PATH 2/3: GC scan fallback
+        if not handled then
             local t, a, m = FindLiveWeaponGC()
             if t then
-                local cap = rawget(t, m)
-                if type(cap)=="number" and cap > 0 then
-                    pcall(function() t[a] = cap end)
-                end
+                local magSize = (rawget(t,"Properties") and rawget(t.Properties,"Rounds"))
+                                or rawget(t, m) or 30
+                pcall(function()
+                    t[a] = magSize
+                    t[m] = 9999
+                    t.IsReloading  = false
+                    t.IsBurstShooting = false
+                end)
             end
         end
-        task.wait(0.05)
-    end
+    end)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -1136,118 +1107,19 @@ local function RestoreFPS()
     pcall(function() settings().Rendering.QualityLevel = _origQuality or Enum.QualityLevel.Automatic end)
 end
 
--- ─────────────────────────────────────────────────────────────────────────
---  AUTO HEADSHOT  (v6.1 rewrite — no shake)
--- ─────────────────────────────────────────────────────────────────────────
--- Root causes of the v6.0 shake, all fixed here:
---
--- BUG 1 — CameraType = Scriptable
---   Setting Scriptable kills Roblox's own camera loop entirely.
---   When zero enemies are present the camera freezes in place (position
---   tracking, character-follow, viewmodel bob all stop). The moment an
---   enemy spawns our lerp fires from that stale frozen position → violent
---   lurch / shake.  FIX: never touch CameraType. Keep it Custom so the
---   game handles all position/character-follow normally.
---
--- BUG 2 — RenderStepped fires BEFORE Roblox's camera update
---   Roblox's camera module runs at RenderPriority.Camera (200).
---   A plain RenderStepped connection runs at priority 0 — BEFORE the
---   game's camera. Order was: our write → game overwrites → we read the
---   overwritten value next frame → feedback oscillation every frame.
---   FIX: use BindToRenderStep at Camera.Value + 1 (201) so we execute
---   AFTER the game finishes its camera update. We read the final position,
---   apply our rotation adjustment, and nothing overwrites it afterwards.
---
--- BUG 3 — CFrame:Lerp interpolates position as well as rotation
---   CFrame.lookAt(camPos, head) + CFrame:Lerp drifts the position
---   component toward the lookAt origin, fighting the game's tracking.
---   FIX: only rotate. Grab camPos from the game's final CFrame, slerp
---   only the LookVector, then write CFrame.lookAt(camPos, camPos+newLook).
---   Position is always exactly what the game computed; only the aim
---   direction is adjusted.
---
--- ADDITIONAL: dead-zone guard — if we're already within DEAD_ZONE_ANGLE
---   radians of the target (~1.5°) we skip the write entirely.  This
---   eliminates micro-jitter from floating-point noise when locked on.
-
-local DEAD_ZONE   = math.rad(1.5)   -- skip write if aim is already this close
-
-local hsActive = false
-
-local function StartHeadshot()
-    -- Unbind any previous binding (safe no-op if not bound)
-    pcall(function() RunService:UnbindFromRenderStep("HS_Snap") end)
-
-    -- Run at Camera priority + 1 so we always fire AFTER Roblox's camera update
-    RunService:BindToRenderStep("HS_Snap", Enum.RenderPriority.Camera.Value + 1, function(dt)
-        if not hsActive then return end
-        local myChar = LocalPlayer.Character
-        if not myChar then return end
-
-        local camNow  = workspace.CurrentCamera
-        local camCF   = camNow.CFrame           -- game's final CFrame for this frame
-        local camPos  = camCF.Position          -- position: from game, untouched
-        local camLook = camCF.LookVector
-
-        -- ── Find best head target ────────────────────────────────────
-        local best, bestScore = nil, -math.huge
-        for _, p in ipairs(Players:GetPlayers()) do
-            if IsEnemy(p) and p.Character then
-                local char = p.Character
-                local head = char:FindFirstChild("Head")
-                local hum  = char:FindFirstChildOfClass("Humanoid")
-                if head and hum and hum.Health > 0 and char:GetAttribute("Dead") ~= true then
-                    local toH  = head.Position - camPos
-                    local dist = toH.Magnitude
-                    if dist > 0.5 and dist < 1500 then
-                        local dot = camLook:Dot(toH.Unit)
-                        if dot > 0 then
-                            local score = (dot * dot) / (dist + 1)
-                            if score > bestScore then bestScore = score; best = head end
-                        end
-                    end
-                end
-            end
-        end
-
-        -- ── No target → do absolutely nothing, game camera runs free ──
-        if not best then return end
-
-        -- ── Compute desired look direction ────────────────────────────
-        local toHead      = (best.Position - camPos)
-        local desiredLook = toHead.Unit
-
-        -- Dead-zone: skip write if we're already close enough
-        local aimDot = math.clamp(camLook:Dot(desiredLook), -1, 1)
-        if math.acos(aimDot) < DEAD_ZONE then return end
-
-        -- ── Slerp ONLY the look direction (no position drift) ─────────
-        local factor  = math.min(1, HEADSHOT_LERP * (dt * 60))
-        local newLook = camLook:Lerp(desiredLook, factor).Unit
-
-        -- Preserve game position exactly; only write a new look direction
-        camNow.CFrame = CFrame.lookAt(camPos, camPos + newLook)
-    end)
-end
-
-local function StopHeadshot()
-    pcall(function() RunService:UnbindFromRenderStep("HS_Snap") end)
-    -- CameraType was never changed, nothing to restore
-end
-
 -- ═══════════════════════════════════════════════════════════════════════════
 --  WIRE FEATURES INTO TABS
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ─────────────────────────────────────────────────────────────
---  TAB 1  — Combat  (ESP, AutoFire, Max Velocity, Zero Spread, Auto Headshot)
+--  TAB 1  — Combat  (ESP, Max Velocity, Zero Spread)
 -- ─────────────────────────────────────────────────────────────
 Section(Tab1, "  ◆ VISUAL")
 
 FluentToggle(Tab1, "Full Body ESP", "Enemy highlights through walls", function(v)
     ESPConfig.Enabled = v
     return v
-end)(true)  -- starts ON to match v5.9 default
+end)(true)  -- starts ON
 
 Section(Tab1, "  ◆ AIMBOT")
 
@@ -1259,24 +1131,6 @@ FluentToggle(Tab1, "Max Velocity", "Snap aimbot — PullStrength 65, head target
         return v
     end
     warn("[Bloxstrike] Velocity table not found — fire weapon first.")
-    return false
-end)
-
-FluentToggle(Tab1, "Auto Headshot", "BindToRenderStep — smooth, no shake", function(v)
-    hsActive = v
-    if v then StartHeadshot()
-    else       StopHeadshot() end
-    return v
-end)
-
-FluentToggle(Tab1, "Boost AutoFire", "Injects into AimAssist autofire table", function(v)
-    local t = FindAutoFireTable()
-    if t then
-        if v then pcall(ApplyAutoFireON, t)
-        else       pcall(ApplyAutoFireOFF, t) end
-        return v
-    end
-    warn("[Bloxstrike] AutoFire table not found.")
     return false
 end)
 
@@ -1296,13 +1150,13 @@ end)
 -- ─────────────────────────────────────────────────────────────
 Section(Tab2, "  ◆ AMMO")
 
-FluentToggle(Tab2, "Infinite Ammo", "3-path scanner — all weapons, all rounds", function(v)
+FluentToggle(Tab2, "Infinite Ammo", "Heartbeat — resets Rounds+Capacity+IsReloading every frame", function(v)
     ammoActive = v
     if v then
-        if ammoThread then task.cancel(ammoThread) end
-        ammoThread = task.spawn(RunAmmoThread)
+        if ammoConn then ammoConn:Disconnect(); ammoConn = nil end
+        RunAmmoHook()
     else
-        if ammoThread then task.cancel(ammoThread); ammoThread = nil end
+        if ammoConn then ammoConn:Disconnect(); ammoConn = nil end
     end
     return v
 end)
@@ -1335,16 +1189,15 @@ end)
 --  TAB 5  — Info / Notes
 -- ─────────────────────────────────────────────────────────────
 Section(Tab5, "  ◆ VERSION")
-AddButton(Tab5, "v6.0  —  Velocity Suite", function() end)
+AddButton(Tab5, "v6.2  —  Velocity Suite", function() end)
 Section(Tab5, "  ◆ NOTES")
-AddButton(Tab5, "RapidFire & SpeedBoost REMOVED", function() end)
-AddButton(Tab5, "Infinite Ammo: fixed all weapons", function() end)
-AddButton(Tab5, "Auto Headshot: BindToRenderStep, no shake", function() end)
+AddButton(Tab5, "AutoFire & AutoHeadshot REMOVED", function() end)
+AddButton(Tab5, "Infinite Ammo: Heartbeat, IsReloading fix", function() end)
 AddButton(Tab5, "FPS Boost: shadows off + Level01", function() end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v6.0 Loaded — UI: Fluent Template")
-print("  Tab 1: ESP | MaxVelocity | AutoHeadshot | AutoFire | ZeroSpread")
-print("  Tab 2: InfiniteAmmo (3-path fixed)")
+print("[Bloxstrike] v6.2 Loaded — UI: Fluent Template")
+print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
+print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
 print("  Tab 5: Info")
