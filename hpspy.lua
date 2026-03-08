@@ -1533,30 +1533,50 @@ local function PushLog(tag, msg)
     print(string.format("[BACLog][%s] %s", tag, msg))
 end
 
--- ── 1. Hook __namecall for all :FireServer / :InvokeServer ─────
-local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    if (method == "FireServer" or method == "InvokeServer")
-    and typeof(self) == "Instance"
-    and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
-        -- Build a compact path (last 2 parts to avoid spam)
-        local path = self:GetFullName()
-        local parts = string.split(path, ".")
-        local shortPath = #parts >= 2
-            and (parts[#parts-1] .. "." .. parts[#parts])
-            or  parts[#parts]
-        -- Serialize first arg if simple
-        local args = {...}
-        local argStr = ""
-        if args[1] ~= nil then
-            local ok, enc = pcall(game:GetService("HttpService").JSONEncode,
-                                  game:GetService("HttpService"), args[1])
-            argStr = ok and (" → " .. enc:sub(1, 60)) or " → [complex]"
+-- ── 1. Safe server→client remote listeners ──────────────────
+-- hookmetamethod on __namecall triggers Alpha-3B immediately on join:
+-- BAC sends a tick() ping via BlankRequest and validates the RTT via
+-- ReportPlayerConnect. Hooking __namecall adds Lua overhead to that
+-- response, making the timing anomalous. BAC detects this = instant ban.
+--
+-- Safe alternative: listen on OnClientEvent for known server→client
+-- remotes from NetworkRemotes (paths confirmed from live tree dump).
+-- Pure listeners — zero hooking, zero metatable touching.
+task.spawn(function()
+    local NR = game:GetService("ReplicatedStorage"):WaitForChild("NetworkRemotes", 10)
+    if not NR then PushLog("SYS", "NetworkRemotes not found"); return end
+
+    local function WatchRemote(path, tag)
+        local ok, remote = pcall(function()
+            local obj = NR
+            for _, part in ipairs(string.split(path, "/")) do
+                obj = obj:WaitForChild(part, 5)
+            end
+            return obj
+        end)
+        if ok and remote and remote:IsA("RemoteEvent") then
+            remote.OnClientEvent:Connect(function(data)
+                local info = ""
+                if data ~= nil then
+                    local ok2, enc = pcall(
+                        game:GetService("HttpService").JSONEncode,
+                        game:GetService("HttpService"), data)
+                    info = ok2 and (" -> " .. tostring(enc):sub(1,50)) or " -> [data]"
+                end
+                PushLog("REMOTE", tag .. info)
+            end)
+            PushLog("SYS", "Watching: " .. tag)
         end
-        PushLog("REMOTE", method .. " " .. shortPath .. argStr)
     end
-    return oldNamecall(self, ...)
+
+    -- Watch key server->client events (paths from Universal_Tree_Dump)
+    WatchRemote("Character/CharacterDamaged",  "Char.Damaged")
+    WatchRemote("Character/CharacterDied",     "Char.Died")
+    WatchRemote("Character/FallDamage",        "Char.FallDmg")
+    WatchRemote("Character/ShotSlow",          "Char.ShotSlow")
+    WatchRemote("UI/ShowNotification",         "UI.Notification")
+    WatchRemote("Chat/ChatSystemMessage",      "Chat.SysMsg")
+    WatchRemote("Chat/ChatTeamDamage",         "Chat.TeamDmg")
 end)
 
 -- ── 2. Hook ChatPlayerBanned remote directly ───────────────────
@@ -1625,14 +1645,14 @@ end)
 PushLog("SYS", "Ban Logger initialised — watching remotes + velocity")
 
 Section(Tab5, "  ◆ VERSION")
-AddButton(Tab5, "v6.7  —  Velocity Suite", function() end)
+AddButton(Tab5, "v6.8  —  Velocity Suite", function() end)
 Section(Tab5, "  ◆ NOTES")
 AddButton(Tab5, "JUMP: only Low Gravity (>= 120) is safe", function() end)
 AddButton(Tab5, "BAN: see scroll panel above for pre-ban log", function() end)
 AddButton(Tab5, "VEL spikes show what BAC sees server-side", function() end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v6.7 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v6.8 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
