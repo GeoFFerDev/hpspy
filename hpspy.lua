@@ -2247,10 +2247,439 @@ FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to re
     return v
 end)
 
+-- ─────────────────────────────────────────────────────────────
+--  AUDIO ESP
+--  Confirmed sources (from Dump_Replicated.lua):
+--    • Footstep / Landing / Jump sounds  → parented to HumanoidRootPart
+--      (MovementSounds.Update calls v_u_26(v59, material, volume)
+--       where v59 = HRP — confirmed line 40883)
+--    • Shot / Reload sounds  → parented to enemy Head
+--      (ReplicateSound.Listen calls playOneTime({Parent=Head}) — line 40330+)
+--  Zero hooking: we just watch ChildAdded on both bones.
+-- ─────────────────────────────────────────────────────────────
+local AUDIO_DURATION   = 1.8     -- seconds event remains visible
+local audioESPActive   = false
+local audioEvents      = {}      -- [player] = { time, label, pos }
+local audioBillboards  = {}      -- [player] = { bb, lbl }
+local audioConns       = {}      -- [player] = { RBXScriptConnection, ... }
+
+-- ── Screen-edge directional arrow HUD ──────────────────────
+local audioHUD = Instance.new("ScreenGui", guiTarget)
+audioHUD.Name            = "AudioESP_HUD"
+audioHUD.ResetOnSpawn    = false
+audioHUD.IgnoreGuiInset  = true
+audioHUD.Enabled         = false
+
+local ARROW_POOL = 8
+local arrowPool  = {}
+for i = 1, ARROW_POOL do
+    local fr = Instance.new("Frame", audioHUD)
+    fr.Size                   = UDim2.new(0, 32, 0, 32)
+    fr.BackgroundColor3       = Color3.fromRGB(220, 60, 60)
+    fr.BackgroundTransparency = 0.2
+    fr.BorderSizePixel        = 0
+    fr.Visible                = false
+    Instance.new("UICorner", fr).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", fr)
+    stroke.Color     = Color3.fromRGB(255, 120, 120)
+    stroke.Thickness = 1.5
+    local lbl = Instance.new("TextLabel", fr)
+    lbl.Size               = UDim2.new(1,0,1,0)
+    lbl.BackgroundTransparency = 1
+    lbl.TextSize           = 18
+    lbl.Font               = Enum.Font.GothamBold
+    lbl.TextColor3         = Color3.new(1,1,1)
+    lbl.Text               = "🔊"
+    arrowPool[i] = { fr = fr, lbl = lbl }
+end
+
+-- ── Billboard above enemy head ──────────────────────────────
+local function MakeAudioBB(player)
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if audioBillboards[player] and audioBillboards[player].bb.Parent then
+        audioBillboards[player].bb:Destroy()
+    end
+    local bb = Instance.new("BillboardGui")
+    bb.Name          = "AudioESP"
+    bb.Size          = UDim2.new(0, 110, 0, 26)
+    bb.StudsOffset   = Vector3.new(0, 4.2, 0)
+    bb.AlwaysOnTop   = true
+    bb.ResetOnSpawn  = false
+    bb.Enabled       = false
+    bb.Parent        = hrp
+    local bg = Instance.new("Frame", bb)
+    bg.Size                    = UDim2.new(1,0,1,0)
+    bg.BackgroundColor3        = Color3.fromRGB(14, 8, 8)
+    bg.BackgroundTransparency  = 0.2
+    bg.BorderSizePixel         = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 5)
+    local lbl = Instance.new("TextLabel", bg)
+    lbl.Size               = UDim2.new(1,-4,1,0)
+    lbl.Position           = UDim2.new(0,4,0,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Font               = Enum.Font.GothamBold
+    lbl.TextSize           = 11
+    lbl.TextColor3         = Color3.fromRGB(255, 90, 90)
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.Text               = "🔊"
+    audioBillboards[player] = { bb = bb, lbl = lbl }
+end
+
+local function LogAudio(player, icon, label)
+    if not audioESPActive then return end
+    if not IsEnemy(player) then return end
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local dist  = myHRP and math.floor((hrp.Position - myHRP.Position).Magnitude) or 0
+
+    audioEvents[player] = { time = tick(), label = label, icon = icon, pos = hrp.Position }
+
+    local entry = audioBillboards[player]
+    if not entry or not entry.bb.Parent then
+        MakeAudioBB(player)
+        entry = audioBillboards[player]
+    end
+    if entry then
+        entry.lbl.Text   = icon .. " " .. label .. "  " .. dist .. "m"
+        entry.bb.Enabled = true
+    end
+end
+
+-- ── Sound name classifier ──────────────────────────────────
+local function ClassifySound(name)
+    local n = name:lower()
+    -- Shot sounds arrive on Head: "Shoot", "NoSuppressorShoot", "AimShoot", "Shoot1"…
+    if string.find(n, "shoot") or string.find(n, "fire") then
+        return "🔫", "Shot"
+    end
+    if string.find(n, "reload") then
+        return "🔄", "Reload"
+    end
+    -- Footstep sounds on HRP: "LandingConcrete", "LandingMetal", "LandingGrass", "Jump"…
+    if string.find(n, "landing") or string.find(n, "land") then
+        return "💥", "Landing"
+    end
+    if string.find(n, "jump") then
+        return "↑", "Jump"
+    end
+    if string.find(n, "footstep") or string.find(n, "step") or string.find(n, "walk")
+    or string.find(n, "floor") or string.find(n, "concrete") or string.find(n, "metal")
+    or string.find(n, "grass") or string.find(n, "gravel") or string.find(n, "sand")
+    or string.find(n, "wood") or string.find(n, "glass") or string.find(n, "rubber") then
+        return "👣", "Footstep"
+    end
+    return nil, nil   -- ignore sounds we don't recognise
+end
+
+-- ── Connect to one enemy character ──────────────────────────
+local function ConnectChar(player, char)
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    local head = char:FindFirstChild("Head")
+    if not hrp or not head then return end
+    MakeAudioBB(player)
+
+    local function hookSound(s)
+        if not s:IsA("Sound") then return end
+        local icon, label = ClassifySound(s.Name)
+        if not icon then return end
+        s.Played:Connect(function()
+            LogAudio(player, icon, label)
+        end)
+    end
+
+    -- Hook existing sounds
+    for _, s in ipairs(hrp:GetDescendants())  do hookSound(s) end
+    for _, s in ipairs(head:GetDescendants()) do hookSound(s) end
+
+    -- Hook future sounds (game adds/removes dynamically)
+    local c1 = hrp.DescendantAdded:Connect(function(s)
+        task.defer(function() hookSound(s) end)
+    end)
+    local c2 = head.DescendantAdded:Connect(function(s)
+        task.defer(function() hookSound(s) end)
+    end)
+    if not audioConns[player] then audioConns[player] = {} end
+    table.insert(audioConns[player], c1)
+    table.insert(audioConns[player], c2)
+end
+
+local function ConnectPlayer(player)
+    if not audioConns[player] then audioConns[player] = {} end
+    -- Current character
+    if player.Character then ConnectChar(player, player.Character) end
+    -- Future spawns
+    local c = player.CharacterAdded:Connect(function(char)
+        char:WaitForChild("HumanoidRootPart", 10)
+        task.wait(0.05)
+        ConnectChar(player, char)
+    end)
+    table.insert(audioConns[player], c)
+end
+
+local function DisconnectPlayer(player)
+    if audioConns[player] then
+        for _, c in ipairs(audioConns[player]) do
+            pcall(function() c:Disconnect() end)
+        end
+        audioConns[player] = nil
+    end
+    if audioBillboards[player] then
+        pcall(function() audioBillboards[player].bb:Destroy() end)
+        audioBillboards[player] = nil
+    end
+    audioEvents[player] = nil
+end
+
+-- ── Per-frame HUD update ────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    if not audioESPActive then return end
+    local cam   = workspace.CurrentCamera
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not cam or not myHRP then return end
+
+    local vp      = cam.ViewportSize
+    local cx, cy  = vp.X / 2, vp.Y / 2
+    local now     = tick()
+    local arrowN  = 0
+
+    for p, ev in pairs(audioEvents) do
+        local age = now - ev.time
+        if age >= AUDIO_DURATION then
+            -- Expire billboard
+            local entry = audioBillboards[p]
+            if entry and entry.bb then entry.bb.Enabled = false end
+            audioEvents[p] = nil
+        else
+            -- Screen-edge arrow for off-screen enemies
+            local sp, inView = cam:WorldToViewportPoint(ev.pos)
+            local onScreen = inView and sp.X >= 0 and sp.X <= vp.X and sp.Y >= 0 and sp.Y <= vp.Y
+            if not onScreen and arrowN < ARROW_POOL then
+                arrowN = arrowN + 1
+                local a    = arrowPool[arrowN]
+                local fade = age / AUDIO_DURATION
+                -- Clamp direction to screen edge
+                local dx   = sp.X - cx
+                local dy   = sp.Y - cy
+                local ang  = math.atan2(dy, dx)
+                local ex   = math.clamp(cx + math.cos(ang) * (cx - 22), 16, vp.X - 48)
+                local ey   = math.clamp(cy + math.sin(ang) * (cy - 22), 16, vp.Y - 48)
+                a.fr.Position           = UDim2.new(0, ex, 0, ey)
+                a.fr.BackgroundTransparency = 0.15 + 0.55 * fade
+                a.lbl.Text              = ev.icon
+                a.lbl.TextTransparency  = fade * 0.6
+                a.fr.Visible            = true
+            end
+        end
+    end
+    -- Hide unused arrows
+    for i = arrowN + 1, ARROW_POOL do
+        arrowPool[i].fr.Visible = false
+    end
+end)
+
+-- ── Wire into Tab1 ──────────────────────────────────────────
+Section(Tab1, "  ◆ AUDIO")
+FluentToggle(Tab1, "Audio ESP",
+    "Head sounds → Shot/Reload  |  HRP sounds → Footstep/Land/Jump", function(v)
+    audioESPActive   = v
+    audioHUD.Enabled = v
+    if v then
+        for p in pairs(PlayerCache) do
+            if IsEnemy(p) then ConnectPlayer(p) end
+        end
+        -- Hook future players too
+        Players.PlayerAdded:Connect(function(p)
+            if audioESPActive and IsEnemy(p) then ConnectPlayer(p) end
+        end)
+        Players.PlayerRemoving:Connect(function(p)
+            DisconnectPlayer(p)
+        end)
+    else
+        for p in pairs(audioConns) do DisconnectPlayer(p) end
+        -- Hide all billboards
+        for _, entry in pairs(audioBillboards) do
+            if entry and entry.bb then entry.bb.Enabled = false end
+        end
+        for i = 1, ARROW_POOL do arrowPool[i].fr.Visible = false end
+    end
+    return v
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  WALL PEN ESP
+--  Shows which walls the AWP (Penetration=1.5) can shoot through.
+--
+--  Material thickness table (from ReplicatedStorage.Shared.Raycast dump):
+--    Concrete / Brick / Metal / Rock / Marble / Asphalt / etc.  →  0.25 studs
+--    SmoothPlastic / Plastic / Wood / WoodPlanks               →  7.0  studs
+--    Glass / Fabric                                             →  100  studs
+--
+--  AWP Penetration = 1.5 studs  →  any part whose material thickness ≤ 1.5
+--  penetrates.  That covers ALL the 0.25-stud materials, plus map-specific
+--  MaterialVariants "Sandy Brick" and "IndoorWall" (0.25 studs, used on
+--  mirage/inferno thin walls).
+--
+--  SmoothPlastic (most generic parts) = 7 studs → NOT penetrable by AWP.
+--  The game does the exact same check server-side in castThrough().
+-- ═══════════════════════════════════════════════════════════════════════════
+local PEN_HIGHLIGHTS  = {}   -- { Highlight instances }
+local penESPActive    = false
+
+-- Materials confirmed from Raycast module ≤ 1.5 studs (= AWP-penetrable)
+local PEN_MATERIALS = {
+    [Enum.Material.Concrete]     = true,
+    [Enum.Material.Brick]        = true,
+    [Enum.Material.Cobblestone]  = true,
+    [Enum.Material.Basalt]       = true,
+    [Enum.Material.Rock]         = true,
+    [Enum.Material.Slate]        = true,
+    [Enum.Material.Marble]       = true,
+    [Enum.Material.Granite]      = true,
+    [Enum.Material.Limestone]    = true,
+    [Enum.Material.Asphalt]      = true,
+    [Enum.Material.Pavement]     = true,
+    [Enum.Material.Metal]        = true,
+    [Enum.Material.DiamondPlate] = true,
+    [Enum.Material.CorrodedMetal]= true,
+    [Enum.Material.Mud]          = true,
+    [Enum.Material.Ground]       = true,
+    [Enum.Material.Grass]        = true,
+    [Enum.Material.LeafyGrass]   = true,
+    [Enum.Material.Sand]         = true,
+    [Enum.Material.Sandstone]    = true,
+    [Enum.Material.Snow]         = true,
+    [Enum.Material.Ice]          = true,
+    [Enum.Material.Salt]         = true,
+    [Enum.Material.Pebble]       = true,
+    [Enum.Material.CeramicTiles] = true,
+    [Enum.Material.Plaster]      = true,
+}
+-- MaterialVariant-named walls (map-specific thin walls, confirmed from dump)
+local PEN_VARIANTS = { ["Sandy Brick"] = true, ["IndoorWall"] = true }
+local PEN_CAP = 500   -- max highlights to avoid FPS death on large maps
+
+local function BuildPenESP()
+    for _, hl in ipairs(PEN_HIGHLIGHTS) do
+        pcall(function() hl:Destroy() end)
+    end
+    PEN_HIGHLIGHTS = {}
+
+    local count = 0
+    local myChar = LocalPlayer.Character
+
+    -- Scan current map descendants
+    for _, part in ipairs(workspace:GetDescendants()) do
+        if count >= PEN_CAP then break end
+        if part:IsA("BasePart") and part.CanCollide
+        and not (myChar and part:IsDescendantOf(myChar)) then
+            local isPen = PEN_MATERIALS[part.Material]
+                       or (part.MaterialVariant ~= "" and PEN_VARIANTS[part.MaterialVariant])
+            if isPen then
+                count = count + 1
+                local hl = Instance.new("Highlight")
+                -- Occluded: only shows on walls you can actually see/aim at
+                -- Gives a natural "these walls near me are penetrable" view
+                hl.DepthMode           = Enum.HighlightDepthMode.Occluded
+                hl.FillColor           = Color3.fromRGB(255, 200, 30)
+                hl.OutlineColor        = Color3.fromRGB(255, 140, 0)
+                hl.FillTransparency    = 0.65
+                hl.OutlineTransparency = 0
+                hl.Parent              = part
+                table.insert(PEN_HIGHLIGHTS, hl)
+            end
+        end
+    end
+    return count
+end
+
+local function ClearPenESP()
+    for _, hl in ipairs(PEN_HIGHLIGHTS) do
+        pcall(function() hl:Destroy() end)
+    end
+    PEN_HIGHLIGHTS = {}
+end
+
+-- Wire into Tab1 under ◆ VISUAL
+Section(Tab1, "  ◆ WALL PEN")
+FluentToggle(Tab1, "Wall Pen ESP",
+    "AWP-penetrable walls highlighted gold — Concrete/Brick/Metal + Sandy Brick", function(v)
+    penESPActive = v
+    if v then
+        task.spawn(function()
+            local n = BuildPenESP()
+            print(("[WallPen] Highlighted %d penetrable parts (cap=%d)"):format(n, PEN_CAP))
+        end)
+    else
+        ClearPenESP()
+    end
+    return v
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  FOV UNLOCKER
+--  CameraController (CameraController.lua, line 35793) runs at
+--  Enum.RenderPriority.Camera.Value + 1 = 201.
+--  We run at 202 — guaranteed to execute AFTER the game writes FieldOfView.
+--  We only push FOV UP (never fight scope animations).
+--  Guard: only override when cam.FieldOfView >= 65 (scope sets it to 40-50,
+--  so we never interfere with sniper zoom).
+-- ═══════════════════════════════════════════════════════════════════════════
+local FOV_ACTIVE  = false
+local TARGET_FOV  = 90     -- default, overridden by slider
+local FOV_STEP    = "FOV_Override"
+
+local function StartFOV()
+    -- Unbind any stale binding
+    pcall(function() RunService:UnbindFromRenderStep(FOV_STEP) end)
+    RunService:BindToRenderStep(FOV_STEP, Enum.RenderPriority.Camera.Value + 2, function()
+        if not FOV_ACTIVE then return end
+        local cam = workspace.CurrentCamera
+        -- Only override when game is at or above default (not scoped)
+        if cam.FieldOfView >= 65 then
+            cam.FieldOfView = TARGET_FOV
+        end
+    end)
+end
+
+local function StopFOV()
+    pcall(function() RunService:UnbindFromRenderStep(FOV_STEP) end)
+    workspace.CurrentCamera.FieldOfView = 70   -- restore default
+end
+
+Section(Tab3, "  ◆ CAMERA")
+
+FluentToggle(Tab3, "FOV Unlocker",
+    "Override FieldOfView after CameraController (priority 202) — scope still works", function(v)
+    FOV_ACTIVE = v
+    if v then StartFOV() else StopFOV() end
+    return v
+end)
+
+FluentSlider(Tab3, "FOV Value", 70, 120, 90, 100,
+    function() return TARGET_FOV end,
+    function(val)
+        TARGET_FOV = val
+        -- Apply immediately if active and not scoped
+        if FOV_ACTIVE then
+            local cam = workspace.CurrentCamera
+            if cam.FieldOfView >= 65 then
+                cam.FieldOfView = val
+            end
+        end
+    end
+)
+
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.7 Loaded — UI: Fluent Template")
-print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
+print("[Bloxstrike] v8.0 Loaded — UI: Fluent Template")
+print("  Tab 1: ESP | WallPenESP | MaxVelocity | ZeroSpread | AudioESP | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
-print("  Tab 3: FPS Boost")
+print("  Tab 3: FPS Boost | FOV Unlocker")
 print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
