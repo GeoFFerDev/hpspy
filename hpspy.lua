@@ -1,14 +1,29 @@
--- BLOXSTRIKE VELOCITY SUITE — v5.8  (Fluent UI)
--- Features:
---   • Full Body ESP       — proximity-sorted highlights, 10 max, dynamic FPS scaling
---   • Boost AutoFire      — native gc injection, 4-pass broad field scan
---   • Max Velocity        — boosted aimbot (PullStrength 65, all-angle snap, head target,
---                           wall bypass, full recoil suppression)
---   • Zero Spread         — hooks applySpread or Bullet.Spread object via gc scan
---   • Infinite Ammo       — pins Rounds = Capacity on live weapon object at 20 Hz
---
--- UI renovated to Fluent UI template.
--- Speed Boost and Rapid Fire removed (bannable).
+--[[
+  ══════════════════════════════════════════════════════════════
+  FLUENT UI TEMPLATE  —  Extracted from JOSEPEDOV V51
+  ══════════════════════════════════════════════════════════════
+  LAYOUT OVERVIEW:
+    • Loading Screen  — fullscreen bg + gradient vignette,
+                        title/sub labels, checkpoint route dots,
+                        progress bar, animated speed lines
+    • Main Panel      — 420×280 draggable window
+        ├─ TopBar     — title, minimize (—), close (✕)
+        ├─ Sidebar    — tab buttons with active indicator
+        └─ ContentArea— scrolling tab frames
+            ├─ Tab 1  (empty — add content here)
+            ├─ Tab 2  (empty — add content here)
+            ├─ Tab 3  (empty — add content here)
+            ├─ Tab 4  (empty — add content here)
+            └─ Tab 5  (empty — add content here)
+
+  UI HELPERS (ready to use):
+    Section(parent, "  HEADER TEXT")
+    AddButton(parent, "Button Label", callback)
+    FluentToggle(parent, "Title", "Description", callback)  → returns setV(bool)
+    FluentSlider(parent, "Label", min, max, default, sweetspot, getV, setV)
+    FluentStepper(parent, "Label", "fmt", getV, decV, incV)
+  ══════════════════════════════════════════════════════════════
+]]
 
 -- ─────────────────────────────────────────────────────────────
 --  SERVICES
@@ -20,8 +35,7 @@ local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui          = game:GetService("CoreGui")
 local StarterGui       = game:GetService("StarterGui")
-local LocalPlayer      = Players.LocalPlayer
-local player           = LocalPlayer
+local player           = Players.LocalPlayer
 
 -- Force landscape on mobile
 pcall(function() StarterGui.ScreenOrientation = Enum.ScreenOrientation.LandscapeRight end)
@@ -34,7 +48,7 @@ local guiTarget = (type(gethui) == "function" and gethui())
 
 -- Anti-overlap: destroy any previous instances
 if guiTarget:FindFirstChild("UI_Load") then guiTarget.UI_Load:Destroy() end
-if guiTarget:FindFirstChild("UI_Main")  then guiTarget.UI_Main:Destroy()  end
+if guiTarget:FindFirstChild("UI_Main") then guiTarget.UI_Main:Destroy() end
 
 -- ═════════════════════════════════════════════════════════════
 --  LOADING SCREEN
@@ -46,10 +60,11 @@ loadGui.ResetOnSpawn   = false
 loadGui.Parent         = guiTarget
 
 local bg = Instance.new("Frame", loadGui)
-bg.Size             = UDim2.new(1, 0, 1, 0)
-bg.BackgroundColor3 = Color3.fromRGB(4, 5, 9)
-bg.BorderSizePixel  = 0
+bg.Size              = UDim2.new(1, 0, 1, 0)
+bg.BackgroundColor3  = Color3.fromRGB(4, 5, 9)
+bg.BorderSizePixel   = 0
 
+-- Vignette gradient
 local vig = Instance.new("UIGradient", bg)
 vig.Color = ColorSequence.new{
     ColorSequenceKeypoint.new(0,   Color3.fromRGB(0, 0, 0)),
@@ -63,27 +78,29 @@ vig.Transparency = NumberSequence.new{
     NumberSequenceKeypoint.new(1,   0.6),
 }
 
+-- Title
 local titleLbl = Instance.new("TextLabel", bg)
-titleLbl.Size               = UDim2.new(1, 0, 0, 50)
-titleLbl.Position           = UDim2.new(0, 0, 0.22, 0)
+titleLbl.Size                = UDim2.new(1, 0, 0, 50)
+titleLbl.Position            = UDim2.new(0, 0, 0.22, 0)
 titleLbl.BackgroundTransparency = 1
-titleLbl.Text               = "VELOCITY MAX"
-titleLbl.TextColor3         = Color3.fromRGB(0, 170, 120)
-titleLbl.Font               = Enum.Font.GothamBlack
-titleLbl.TextSize           = 38
+titleLbl.Text                = "YOUR SCRIPT TITLE"     -- ← change me
+titleLbl.TextColor3          = Color3.fromRGB(0, 170, 120)
+titleLbl.Font                = Enum.Font.GothamBlack
+titleLbl.TextSize            = 38
 
+-- Subtitle
 local subLbl = Instance.new("TextLabel", bg)
-subLbl.Size               = UDim2.new(1, 0, 0, 24)
-subLbl.Position           = UDim2.new(0, 0, 0.36, 0)
+subLbl.Size                = UDim2.new(1, 0, 0, 24)
+subLbl.Position            = UDim2.new(0, 0, 0.36, 0)
 subLbl.BackgroundTransparency = 1
-subLbl.Text               = "BloxStrike Suite  ·  v5.8"
-subLbl.TextColor3         = Color3.fromRGB(60, 130, 100)
-subLbl.Font               = Enum.Font.GothamBold
-subLbl.TextSize           = 14
+subLbl.Text                = "Author  ·  Version"      -- ← change me
+subLbl.TextColor3          = Color3.fromRGB(60, 130, 100)
+subLbl.Font                = Enum.Font.GothamBold
+subLbl.TextSize            = 14
 
--- Route dots
+-- ── Checkpoint / Route dots ────────────────────────────────────
 local routeY      = 0.50
-local ROUTE_LABELS = {"🚦 START", "◆ GC SCAN", "◆ ESP INIT", "◆ BUILD UI", "🏁 READY"}
+local ROUTE_LABELS = {"🚦 START", "◆ STEP 1", "◆ STEP 2", "◆ STEP 3", "🏁 DONE"} -- ← change me
 local routeDots   = {}
 
 for i, label in ipairs(ROUTE_LABELS) do
@@ -95,15 +112,17 @@ for i, label in ipairs(ROUTE_LABELS) do
         lf.Position         = UDim2.new(prevX, 6, routeY, 4)
         lf.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
         lf.BorderSizePixel  = 0
-        routeDots[i]      = routeDots[i] or {}
-        routeDots[i].line = lf
+        routeDots[i]       = routeDots[i] or {}
+        routeDots[i].line  = lf
     end
+
     local dot = Instance.new("Frame", bg)
     dot.Size             = UDim2.new(0, 10, 0, 10)
     dot.Position         = UDim2.new(xpct, -5, routeY, 0)
     dot.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
     dot.BorderSizePixel  = 0
     Instance.new("UICorner", dot).CornerRadius = UDim.new(0, 5)
+
     local lbl2 = Instance.new("TextLabel", bg)
     lbl2.Size               = UDim2.new(0, 80, 0, 16)
     lbl2.Position           = UDim2.new(xpct, -40, routeY, 14)
@@ -112,12 +131,13 @@ for i, label in ipairs(ROUTE_LABELS) do
     lbl2.TextColor3         = Color3.fromRGB(30, 55, 40)
     lbl2.Font               = Enum.Font.Code
     lbl2.TextSize           = 10
+
     routeDots[i]     = routeDots[i] or {}
     routeDots[i].dot = dot
     routeDots[i].lbl = lbl2
 end
 
--- Progress bar
+-- ── Progress bar ───────────────────────────────────────────────
 local barTrack = Instance.new("Frame", bg)
 barTrack.Size             = UDim2.new(0.5, 0, 0, 5)
 barTrack.Position         = UDim2.new(0.25, 0, 0.68, 0)
@@ -139,18 +159,18 @@ barTxt.TextColor3         = Color3.fromRGB(40, 90, 65)
 barTxt.Font               = Enum.Font.Code
 barTxt.TextSize           = 12
 
--- Animated speed lines
+-- ── Animated speed lines ──────────────────────────────────────
 local speedLines = {}
 math.randomseed(42)
 for i = 1, 12 do
-    local ln = Instance.new("Frame", bg)
-    local yp = math.random(10, 90) / 100
-    local w  = math.random(60, 160) / 1000
-    local xp = math.random(0, 80) / 100
-    ln.Size             = UDim2.new(w, 0, 0, 1)
-    ln.Position         = UDim2.new(xp, 0, yp, 0)
-    ln.BackgroundColor3 = Color3.fromRGB(0, 170, 120)
-    ln.BorderSizePixel  = 0
+    local ln  = Instance.new("Frame", bg)
+    local yp  = math.random(10, 90) / 100
+    local w   = math.random(60, 160) / 1000
+    local xp  = math.random(0, 80) / 100
+    ln.Size              = UDim2.new(w, 0, 0, 1)
+    ln.Position          = UDim2.new(xp, 0, yp, 0)
+    ln.BackgroundColor3  = Color3.fromRGB(0, 170, 120)
+    ln.BorderSizePixel   = 0
     ln.BackgroundTransparency = 0.6 + math.random() * 0.3
     speedLines[i] = { frame = ln, speed = math.random(40, 120) / 100, x = xp, w = w }
 end
@@ -163,23 +183,26 @@ local loadAnimConn = RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
--- Camera cinematic during load
+-- ── Camera cinematic during load ──────────────────────────────
 local cam = Workspace.CurrentCamera
 cam.CameraType = Enum.CameraType.Scriptable
 local CAM_ROUTE = {
-    { CFrame.lookAt(Vector3.new(0, 75, 200),   Vector3.new(0, 0, 0)) },
+    { CFrame.lookAt(Vector3.new(0, 75, 200),  Vector3.new(0, 0, 0)) },  -- ← change me
     { CFrame.lookAt(Vector3.new(100, 40, 150), Vector3.new(0, 0, 0)) },
     { CFrame.lookAt(Vector3.new(-80, 55, 180), Vector3.new(0, 0, 0)) },
 }
 cam.CFrame = CAM_ROUTE[1][1]
 
+-- ── SetProg helper ────────────────────────────────────────────
 local function SetProg(pct, msg, activeDot)
     TweenService:Create(barFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         { Size = UDim2.new(pct / 100, 0, 1, 0) }):Play()
     barTxt.Text = string.format("  %d%%  —  %s", math.floor(pct), msg)
+
     local ci = math.max(1, math.min(#CAM_ROUTE, math.round(pct / 100 * #CAM_ROUTE + 0.5)))
     TweenService:Create(cam, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
         { CFrame = CAM_ROUTE[ci][1] }):Play()
+
     for i, d in ipairs(routeDots) do
         local on  = activeDot and i <= activeDot
         local col = on and Color3.fromRGB(0, 170, 120) or Color3.fromRGB(20, 40, 30)
@@ -190,391 +213,33 @@ local function SetProg(pct, msg, activeDot)
     end
 end
 
--- ═════════════════════════════════════════════════════════════
---  HPSPY FEATURE LOGIC  (unchanged from v5.8)
--- ═════════════════════════════════════════════════════════════
+-- ─────────────────────────────────────────────────────────────
+--  LOADING SEQUENCE  ← replace task.wait() calls with real work
+-- ─────────────────────────────────────────────────────────────
+SetProg(5,  "Initialising...", 1) ; task.wait(0.2)
+-- TODO: add your preload / setup work here between SetProg calls
+SetProg(30, "Loading assets...", 2) ; task.wait(0.3)
+SetProg(60, "Configuring...",    3) ; task.wait(0.3)
+SetProg(80, "Building UI...",    4) ; task.wait(0.2)
+SetProg(95, "Finalising...",     5) ; task.wait(0.2)
+SetProg(100,"Ready!")
 
--- ── CONFIG ───────────────────────────────────────────────────
-local Config = {
-    ESP_Enabled = true,
-    Enemy_Color = Color3.fromRGB(255, 0, 0),
-}
-local MAX_HIGHLIGHTS = 10
-
--- ── STATE ────────────────────────────────────────────────────
-local Highlights       = {}
-local PlayerCache      = {}
-local CharRemovedConns = {}
-local VelocityRef      = nil
-local AutoFireRef      = nil
-
-SetProg(5, "Initialising...", 1) ; task.wait(0.2)
-
--- ── 1. TEAM CHECK ────────────────────────────────────────────
-local function IsEnemy(p)
-    if p == LocalPlayer then return false end
-    local myTeam    = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
-    local theirTeam = tostring(p:GetAttribute("Team")          or "Nil")
-    return myTeam ~= theirTeam
-end
-
--- ── 2. DISTANCE HELPER ───────────────────────────────────────
-local function GetDistanceTo(p)
-    local myChar    = LocalPlayer.Character
-    local theirChar = p.Character
-    if not myChar or not theirChar then return math.huge end
-    local r1 = myChar:FindFirstChild("HumanoidRootPart")
-    local r2 = theirChar:FindFirstChild("HumanoidRootPart")
-    if not r1 or not r2 then return math.huge end
-    return (r1.Position - r2.Position).Magnitude
-end
-
--- ── 3. GC SCANNER ────────────────────────────────────────────
-local function FindVelocityTable()
-    if VelocityRef then return VelocityRef end
-    local gc = getgc(true)
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table"
-        and rawget(v, "TargetSelection")
-        and rawget(v, "Magnetism")
-        and rawget(v, "RecoilAssist")
-        and rawget(v, "Friction") then
-            VelocityRef = v
-            return v
-        end
-    end
-    return nil
-end
-
-local AF_ENABLE_FIELDS = {
-    "TriggerEnabled", "AutoFireEnabled", "AutoFire", "FireMode",
-    "triggerEnabled", "autoFireEnabled", "autoFire", "fireMode",
-    "Autofire", "Trigger", "AutoShoot", "autoShoot",
-    "EnableAutoFire", "enableAutoFire", "Enable",
-}
-local AF_DELAY_FIELDS = {
-    "Sensitivity", "ReactionTime", "FireDelay", "TriggerDelay",
-    "AutoFireDelay", "ShootDelay", "DelayBetweenShots", "ShotDelay",
-    "sensitivity", "reactionTime", "fireDelay", "triggerDelay",
-    "autoFireDelay", "shootDelay", "delayBetweenShots", "shotDelay",
-    "Delay", "delay", "Rate", "rate", "Interval", "interval",
-}
-local AF_RANGE_FIELDS = {
-    "TriggerAngle", "TriggerDistance", "DetectionRadius", "AimAngle",
-    "triggerAngle", "triggerDistance", "detectionRadius", "aimAngle",
-    "Range", "range", "Radius", "radius", "Angle", "angle",
-    "MaxAngle", "maxAngle", "Distance", "distance",
-}
-
-local function TableHasAny(t, fields)
-    for _, f in ipairs(fields) do
-        if rawget(t, f) ~= nil then return true, f end
-    end
-    return false
-end
-
-local function FindAutoFireTable()
-    if AutoFireRef then return AutoFireRef end
-    if VelocityRef then
-        for _, val in pairs(VelocityRef) do
-            if type(val) == "table" then
-                local hasEnable = TableHasAny(val, AF_ENABLE_FIELDS)
-                local hasDelay  = TableHasAny(val, AF_DELAY_FIELDS)
-                if hasEnable or hasDelay then
-                    AutoFireRef = val
-                    return val
-                end
-            end
-        end
-    end
-    local gc = getgc(true)
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table" and v ~= VelocityRef then
-            if TableHasAny(v, AF_ENABLE_FIELDS) and TableHasAny(v, AF_DELAY_FIELDS) then
-                AutoFireRef = v ; return v
-            end
-        end
-    end
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table" and v ~= VelocityRef then
-            if TableHasAny(v, AF_ENABLE_FIELDS) then AutoFireRef = v ; return v end
-            local count = 0
-            for _, f in ipairs(AF_DELAY_FIELDS) do
-                if rawget(v, f) ~= nil then count = count + 1 end
-                if count >= 2 then AutoFireRef = v ; return v end
-            end
-        end
-    end
-    if VelocityRef then
-        if TableHasAny(VelocityRef, AF_ENABLE_FIELDS)
-        or TableHasAny(VelocityRef, AF_DELAY_FIELDS) then
-            AutoFireRef = VelocityRef ; return VelocityRef
-        end
-    end
-    return nil
-end
-
-SetProg(30, "Scanning GC...", 2) ; task.wait(0.3)
-
--- ── 4. SMOKE BYPASS ──────────────────────────────────────────
-local smokeHooked = false
-local function HookSmoke()
-    if smokeHooked then return end
-    local gc = getgc(true)
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
-            hookfunction(v, function() return false end)
-            smokeHooked = true
-            break
-        end
-    end
-end
-
--- ── 5. VELOCITY INJECTION ────────────────────────────────────
-local function ApplyVelocityON(v)
-    v.TargetSelection.MaxDistance = 10000
-    v.TargetSelection.MaxAngle    = 6.28
-    if v.TargetSelection.CheckWalls  ~= nil then v.TargetSelection.CheckWalls  = false end
-    if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
-    if rawget(v.TargetSelection, "TargetPart") ~= nil then v.TargetSelection.TargetPart = "Head" end
-    if rawget(v.TargetSelection, "TargetBone") ~= nil then v.TargetSelection.TargetBone = "Head" end
-    if rawget(v.TargetSelection, "Bone")       ~= nil then v.TargetSelection.Bone       = "Head" end
-    v.Magnetism.Enabled            = true
-    v.Magnetism.MaxDistance        = 10000
-    v.Magnetism.PullStrength       = 65.0
-    v.Magnetism.StopThreshold      = 0
-    v.Magnetism.MaxAngleHorizontal = 6.28
-    v.Magnetism.MaxAngleVertical   = 6.28
-    v.Friction.Enabled             = false
-    v.Friction.BubbleRadius        = 0
-    v.Friction.MinSensitivity      = 1.0
-    v.RecoilAssist.Enabled         = true
-    v.RecoilAssist.ReductionAmount = 1.0
-end
-
-local function ApplyVelocityOFF(v)
-    v.Magnetism.PullStrength       = 1.0
-    v.Magnetism.MaxDistance        = 300
-    v.Magnetism.MaxAngleHorizontal = 0.5
-    v.Magnetism.MaxAngleVertical   = 0.5
-    v.Friction.Enabled             = true
-    v.Friction.BubbleRadius        = 5.0
-    v.Friction.MinSensitivity      = 1.0
-    v.RecoilAssist.ReductionAmount = 0.0
-end
-
--- ── 6. AUTOFIRE INJECTION ────────────────────────────────────
-local function ApplyAutoFireON(v)
-    for _, f in ipairs(AF_ENABLE_FIELDS) do
-        local cur = rawget(v, f)
-        if type(cur) == "boolean" then v[f] = true end
-    end
-    for _, f in ipairs(AF_DELAY_FIELDS) do
-        local cur = rawget(v, f)
-        if type(cur) == "number" then
-            v[f] = (f == "Sensitivity" or f == "sensitivity") and 1.0 or 0.0
-        end
-    end
-    for _, f in ipairs(AF_RANGE_FIELDS) do
-        local cur = rawget(v, f)
-        if type(cur) == "number" then
-            v[f] = (string.find(string.lower(f), "angle") and 6.28) or 10000
-        end
-    end
-end
-
-local function ApplyAutoFireOFF(v)
-    for _, f in ipairs(AF_ENABLE_FIELDS) do
-        local cur = rawget(v, f)
-        if type(cur) == "boolean" then v[f] = false end
-    end
-    for _, f in ipairs(AF_DELAY_FIELDS) do
-        local cur = rawget(v, f)
-        if type(cur) == "number" then
-            v[f] = (f == "Sensitivity" or f == "sensitivity") and 0.5 or 0.1
-        end
-    end
-    for _, f in ipairs(AF_RANGE_FIELDS) do
-        local cur = rawget(v, f)
-        if type(cur) == "number" then
-            v[f] = (string.find(string.lower(f), "angle") and 1.0) or 300
-        end
-    end
-end
-
--- ── 7. ESP ───────────────────────────────────────────────────
-local function RemoveHighlight(p)
-    if Highlights[p] then
-        Highlights[p]:Destroy()
-        Highlights[p] = nil
-    end
-end
-
-local function CreateHighlight(char)
-    local hl = Instance.new("Highlight")
-    hl.FillTransparency    = 0.5
-    hl.OutlineTransparency = 0
-    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.FillColor           = Config.Enemy_Color
-    hl.OutlineColor        = Config.Enemy_Color
-    hl.Parent              = char
-    return hl
-end
-
-local function HookCharRemoving(p)
-    if CharRemovedConns[p] then CharRemovedConns[p]:Disconnect() end
-    CharRemovedConns[p] = p.CharacterRemoving:Connect(function()
-        RemoveHighlight(p)
-    end)
-end
-
-for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then PlayerCache[p] = true ; HookCharRemoving(p) end
-end
-Players.PlayerAdded:Connect(function(p)
-    if p ~= LocalPlayer then PlayerCache[p] = true ; HookCharRemoving(p) end
-end)
-Players.PlayerRemoving:Connect(function(p)
-    PlayerCache[p] = nil
-    RemoveHighlight(p)
-    if CharRemovedConns[p] then CharRemovedConns[p]:Disconnect() ; CharRemovedConns[p] = nil end
-end)
-
-task.spawn(function()
-    while true do
-        local count = 0
-        for _ in pairs(PlayerCache) do count = count + 1 end
-        task.wait(math.clamp(0.10 + count * 0.004, 0.10, 0.35))
-        if not Config.ESP_Enabled then
-            for p in pairs(Highlights) do RemoveHighlight(p) end
-        else
-            local candidates = {}
-            for p in pairs(PlayerCache) do
-                if IsEnemy(p) and p.Character
-                and p.Character:FindFirstChild("HumanoidRootPart") then
-                    candidates[#candidates + 1] = { p = p, d = GetDistanceTo(p) }
-                end
-            end
-            table.sort(candidates, function(a, b) return a.d < b.d end)
-            local active = {}
-            for i = 1, math.min(#candidates, MAX_HIGHLIGHTS) do
-                active[candidates[i].p] = true
-            end
-            for p in pairs(Highlights) do
-                if not active[p] then RemoveHighlight(p) end
-            end
-            for p in pairs(active) do
-                local char = p.Character
-                local hl   = Highlights[p]
-                if not (hl and hl.Parent == char) then
-                    if hl then hl:Destroy() end
-                    Highlights[p] = CreateHighlight(char)
-                end
-            end
-        end
-    end
-end)
-
-SetProg(60, "ESP initialised...", 3) ; task.wait(0.3)
-
--- ── 8. INFINITE AMMO (state) ─────────────────────────────────
-local AMMO_PAIRS = {
-    { "Rounds",        "Capacity"    },
-    { "rounds",        "capacity"    },
-    { "CurrentAmmo",   "MaxAmmo"     },
-    { "currentAmmo",   "maxAmmo"     },
-    { "Ammo",          "MaxAmmo"     },
-    { "ammo",          "maxAmmo"     },
-    { "CurrentRounds", "TotalRounds" },
-}
-
-local ammoActive = false
-local ammoThread = nil
-
-local function FindLiveWeaponTable()
-    local gc = getgc(true)
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table" then
-            for _, pair in ipairs(AMMO_PAIRS) do
-                local af, mf   = pair[1], pair[2]
-                local rounds   = rawget(v, af)
-                local capacity = rawget(v, mf)
-                if type(rounds) == "number" and type(capacity) == "number"
-                and capacity > 0 and rounds >= 0
-                and rawget(v, "DamagePerPart") == nil then
-                    if rawget(v, "IsEquipped") ~= nil
-                    or rawget(v, "IsShooting") ~= nil then
-                        return v, af, mf
-                    end
-                end
-            end
-        end
-    end
-    return nil, nil, nil
-end
-
--- ── 9. ZERO SPREAD (state) ───────────────────────────────────
-local spreadHooked = false
-local spreadActive = false
-
-local function TryHookSpread()
-    if spreadHooked then return true end
-    local gc = getgc(true)
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "function" and debug.info(v, "n") == "applySpread" then
-            hookfunction(v, function(direction, _spread, _seed) return direction end)
-            spreadHooked = true
-            print("[Bloxstrike] Zero Spread: hooked via applySpread")
-            return true
-        end
-    end
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table" then
-            local sp = rawget(v, "Spread")
-            local cs = rawget(v, "CharacterSpeed")
-            local pr = rawget(v, "Properties")
-            if sp ~= nil and cs ~= nil and type(pr) == "table" then
-                pcall(function()
-                    sp.update      = function() end
-                    sp.setPosition = function() rawset(sp, "_pos", 0) end
-                    sp.getPosition = function() return 0 end
-                end)
-                spreadHooked = true
-                print("[Bloxstrike] Zero Spread: hooked via Bullet.Spread object")
-                return true
-            end
-        end
-    end
-    return false
-end
-
-SetProg(80, "Building UI...", 4) ; task.wait(0.2)
-
--- ═════════════════════════════════════════════════════════════
---  LOADING — DISMISS
--- ═════════════════════════════════════════════════════════════
-SetProg(95, "Finalising...", 5) ; task.wait(0.2)
-SetProg(100, "Ready!")
 task.wait(0.5)
 
+-- Dismiss loading screen
 if loadAnimConn then loadAnimConn:Disconnect() end
+
 pcall(function()
     TweenService:Create(cam, TweenInfo.new(0), { CFrame = cam.CFrame }):Play()
 end)
 task.wait()
-cam.CameraType    = Enum.CameraType.Custom
+cam.CameraType   = Enum.CameraType.Custom
 cam.CameraSubject = nil
 task.wait()
 
 TweenService:Create(bg, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
     { BackgroundTransparency = 1 }):Play()
+
 for _, d in ipairs(loadGui:GetDescendants()) do
     if d:IsA("TextLabel") then
         pcall(function() TweenService:Create(d, TweenInfo.new(0.4), { TextTransparency = 1 }):Play() end)
@@ -583,13 +248,15 @@ for _, d in ipairs(loadGui:GetDescendants()) do
         pcall(function() TweenService:Create(d, TweenInfo.new(0.4), { BackgroundTransparency = 1 }):Play() end)
     end
 end
+
 task.wait(0.6)
 if loadGui then loadGui:Destroy() end
 
 -- ═════════════════════════════════════════════════════════════
---  MAIN PANEL — FLUENT UI
+--  MAIN PANEL
 -- ═════════════════════════════════════════════════════════════
 
+-- ── Theme ────────────────────────────────────────────────────
 local Theme = {
     Background = Color3.fromRGB(24, 24, 28),
     Sidebar    = Color3.fromRGB(18, 18, 22),
@@ -604,38 +271,39 @@ local Theme = {
     Green      = Color3.fromRGB(0, 210, 100),
 }
 
+-- ── ScreenGui ────────────────────────────────────────────────
 local ScreenGui = Instance.new("ScreenGui", guiTarget)
 ScreenGui.Name           = "UI_Main"
 ScreenGui.ResetOnSpawn   = false
 ScreenGui.IgnoreGuiInset = true
 
--- Minimised toggle icon
+-- ── Minimised toggle icon ─────────────────────────────────────
 local ToggleIcon = Instance.new("TextButton", ScreenGui)
-ToggleIcon.Size                   = UDim2.new(0, 45, 0, 45)
-ToggleIcon.Position               = UDim2.new(0.5, -22, 0.05, 0)
-ToggleIcon.BackgroundColor3       = Theme.Background
+ToggleIcon.Size                 = UDim2.new(0, 45, 0, 45)
+ToggleIcon.Position             = UDim2.new(0.5, -22, 0.05, 0)
+ToggleIcon.BackgroundColor3     = Theme.Background
 ToggleIcon.BackgroundTransparency = 0.1
-ToggleIcon.Text                   = "🎯"
-ToggleIcon.TextSize               = 22
-ToggleIcon.Visible                = false
+ToggleIcon.Text                 = "🏁"                -- ← change icon
+ToggleIcon.TextSize             = 22
+ToggleIcon.Visible              = false
 Instance.new("UICorner", ToggleIcon).CornerRadius = UDim.new(1, 0)
 local IconStroke = Instance.new("UIStroke", ToggleIcon)
 IconStroke.Color     = Theme.Accent
 IconStroke.Thickness = 2
 
--- Main window frame
+-- ── Main window frame ─────────────────────────────────────────
 local MainFrame = Instance.new("Frame", ScreenGui)
-MainFrame.Size                   = UDim2.new(0, 420, 0, 280)
-MainFrame.Position               = UDim2.new(0.5, -210, 0.5, -140)
-MainFrame.BackgroundColor3       = Theme.Background
+MainFrame.Size                  = UDim2.new(0, 420, 0, 280)
+MainFrame.Position              = UDim2.new(0.5, -210, 0.5, -140)
+MainFrame.BackgroundColor3      = Theme.Background
 MainFrame.BackgroundTransparency = 0.08
-MainFrame.Active                 = true
+MainFrame.Active                = true
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
 local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Color        = Theme.Stroke
 MainStroke.Transparency = 0.4
 
--- Top bar
+-- ── Top bar ───────────────────────────────────────────────────
 local TopBar = Instance.new("Frame", MainFrame)
 TopBar.Size                 = UDim2.new(1, 0, 0, 32)
 TopBar.BackgroundTransparency = 1
@@ -643,7 +311,7 @@ TopBar.BackgroundTransparency = 1
 local TitleLbl = Instance.new("TextLabel", TopBar)
 TitleLbl.Size               = UDim2.new(0.6, 0, 1, 0)
 TitleLbl.Position           = UDim2.new(0, 14, 0, 0)
-TitleLbl.Text               = "🎯  VELOCITY MAX  ·  v5.8"
+TitleLbl.Text               = "🏁  YOUR SCRIPT TITLE"  -- ← change me
 TitleLbl.Font               = Enum.Font.GothamBold
 TitleLbl.TextColor3         = Theme.Accent
 TitleLbl.TextSize           = 12
@@ -656,7 +324,7 @@ Sep.Position         = UDim2.new(0, 10, 0, 32)
 Sep.BackgroundColor3 = Theme.Stroke
 Sep.BorderSizePixel  = 0
 
--- Top bar control buttons
+-- ── Top bar control buttons ───────────────────────────────────
 local function AddCtrl(text, pos, color, cb)
     local b = Instance.new("TextButton", TopBar)
     b.Size               = UDim2.new(0, 28, 0, 22)
@@ -673,16 +341,18 @@ end
 AddCtrl("✕", UDim2.new(1, -32, 0.5, -11), Color3.fromRGB(255, 80, 80), function()
     ScreenGui:Destroy()
 end)
+
 AddCtrl("—", UDim2.new(1, -62, 0.5, -11), Theme.SubText, function()
-    MainFrame.Visible  = false
-    ToggleIcon.Visible = true
+    MainFrame.Visible    = false
+    ToggleIcon.Visible   = true
 end)
+
 ToggleIcon.MouseButton1Click:Connect(function()
     MainFrame.Visible  = true
     ToggleIcon.Visible = false
 end)
 
--- Drag support
+-- ── Drag support (window + icon) ─────────────────────────────
 local function EnableDrag(obj, handle)
     local drag, start, startPos
     handle.InputBegan:Connect(function(i)
@@ -708,32 +378,32 @@ end
 EnableDrag(MainFrame, TopBar)
 EnableDrag(ToggleIcon, ToggleIcon)
 
--- Sidebar
+-- ── Sidebar ───────────────────────────────────────────────────
 local Sidebar = Instance.new("Frame", MainFrame)
-Sidebar.Size                   = UDim2.new(0, 108, 1, -33)
-Sidebar.Position               = UDim2.new(0, 0, 0, 33)
-Sidebar.BackgroundColor3       = Theme.Sidebar
+Sidebar.Size                  = UDim2.new(0, 108, 1, -33)
+Sidebar.Position              = UDim2.new(0, 0, 0, 33)
+Sidebar.BackgroundColor3      = Theme.Sidebar
 Sidebar.BackgroundTransparency = 0.4
-Sidebar.BorderSizePixel        = 0
+Sidebar.BorderSizePixel       = 0
 Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 10)
 
 local SidebarLayout = Instance.new("UIListLayout", Sidebar)
-SidebarLayout.Padding             = UDim.new(0, 5)
-SidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SidebarLayout.Padding              = UDim.new(0, 5)
+SidebarLayout.HorizontalAlignment  = Enum.HorizontalAlignment.Center
 
 local SidebarPadding = Instance.new("UIPadding", Sidebar)
 SidebarPadding.PaddingTop = UDim.new(0, 10)
 
--- Content area
+-- ── Content area ─────────────────────────────────────────────
 local ContentArea = Instance.new("Frame", MainFrame)
-ContentArea.Size                   = UDim2.new(1, -118, 1, -38)
-ContentArea.Position               = UDim2.new(0, 113, 0, 38)
+ContentArea.Size                  = UDim2.new(1, -118, 1, -38)
+ContentArea.Position              = UDim2.new(0, 113, 0, 38)
 ContentArea.BackgroundTransparency = 1
 
 local AllTabs    = {}
 local AllTabBtns = {}
 
--- CreateTab helper
+-- ── CreateTab helper ──────────────────────────────────────────
 local function CreateTab(name, icon)
     local tf = Instance.new("ScrollingFrame", ContentArea)
     tf.Size                  = UDim2.new(1, 0, 1, 0)
@@ -744,20 +414,22 @@ local function CreateTab(name, icon)
     tf.AutomaticCanvasSize   = Enum.AutomaticSize.Y
     tf.CanvasSize            = UDim2.new(0, 0, 0, 0)
     tf.BorderSizePixel       = 0
+
     local lay = Instance.new("UIListLayout", tf)
     lay.Padding = UDim.new(0, 7)
+
     local pad = Instance.new("UIPadding", tf)
     pad.PaddingTop = UDim.new(0, 6)
 
     local tb = Instance.new("TextButton", Sidebar)
-    tb.Size                   = UDim2.new(0.92, 0, 0, 30)
-    tb.BackgroundColor3       = Theme.Accent
+    tb.Size                  = UDim2.new(0.92, 0, 0, 30)
+    tb.BackgroundColor3      = Theme.Accent
     tb.BackgroundTransparency = 1
-    tb.Text                   = "  " .. icon .. " " .. name
-    tb.TextColor3             = Theme.SubText
-    tb.Font                   = Enum.Font.GothamMedium
-    tb.TextSize               = 12
-    tb.TextXAlignment         = Enum.TextXAlignment.Left
+    tb.Text                  = "  " .. icon .. " " .. name
+    tb.TextColor3            = Theme.SubText
+    tb.Font                  = Enum.Font.GothamMedium
+    tb.TextSize              = 12
+    tb.TextXAlignment        = Enum.TextXAlignment.Left
     Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 6)
 
     local ind = Instance.new("Frame", tb)
@@ -785,18 +457,37 @@ local function CreateTab(name, icon)
     return tf
 end
 
--- UI Component helpers
+-- ── UI Component helpers ──────────────────────────────────────
+
+--- Adds a small section header label.
 local function Section(parent, text)
     local lbl = Instance.new("TextLabel", parent)
-    lbl.Size                   = UDim2.new(0.98, 0, 0, 18)
+    lbl.Size                  = UDim2.new(0.98, 0, 0, 18)
     lbl.BackgroundTransparency = 1
-    lbl.Text                   = text
-    lbl.TextColor3             = Theme.AccentDim
-    lbl.Font                   = Enum.Font.GothamBold
-    lbl.TextSize               = 10
-    lbl.TextXAlignment         = Enum.TextXAlignment.Left
+    lbl.Text                  = text
+    lbl.TextColor3            = Theme.AccentDim
+    lbl.Font                  = Enum.Font.GothamBold
+    lbl.TextSize              = 10
+    lbl.TextXAlignment        = Enum.TextXAlignment.Left
 end
 
+--- Adds a simple action button.
+local function AddButton(parent, text, cb)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size             = UDim2.new(0.98, 0, 0, 35)
+    btn.BackgroundColor3 = Theme.Button
+    btn.Text             = text
+    btn.Font             = Enum.Font.GothamBold
+    btn.TextColor3       = Theme.Text
+    btn.TextSize         = 12
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
+    local stroke = Instance.new("UIStroke", btn)
+    stroke.Color = Theme.Stroke
+    btn.MouseButton1Click:Connect(cb)
+end
+
+--- Adds a toggle with title, description, and pill switch.
+--- Returns setV(bool) so you can force the visual state externally.
 local function FluentToggle(parent, title, desc, callback)
     local state = false
     local btn   = Instance.new("TextButton", parent)
@@ -858,117 +549,760 @@ local function FluentToggle(parent, title, desc, callback)
     return setV
 end
 
+--- Adds a draggable slider (snaps to nearest 10).
+local function FluentSlider(parent, label, minV, maxV, defaultV, sweetspot, getV, setV)
+    local row = Instance.new("Frame", parent)
+    row.Size             = UDim2.new(0.98, 0, 0, 62)
+    row.BackgroundColor3 = Theme.Button
+    row.BorderSizePixel  = 0
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+    local rowStroke = Instance.new("UIStroke", row) ; rowStroke.Color = Theme.Stroke
+
+    local nameLbl = Instance.new("TextLabel", row)
+    nameLbl.Size          = UDim2.new(0.55, 0, 0, 20)
+    nameLbl.Position      = UDim2.new(0, 10, 0, 6)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Text          = label
+    nameLbl.TextColor3    = Theme.Text
+    nameLbl.Font          = Enum.Font.GothamMedium
+    nameLbl.TextSize      = 12
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local valLbl = Instance.new("TextLabel", row)
+    valLbl.Size           = UDim2.new(0.40, 0, 0, 20)
+    valLbl.Position       = UDim2.new(0.58, 0, 0, 6)
+    valLbl.BackgroundTransparency = 1
+    valLbl.Font           = Enum.Font.GothamBold
+    valLbl.TextSize       = 12
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+    local track = Instance.new("Frame", row)
+    track.Size            = UDim2.new(1, -20, 0, 6)
+    track.Position        = UDim2.new(0, 10, 0, 36)
+    track.BackgroundColor3 = Color3.fromRGB(14, 18, 28)
+    track.BorderSizePixel = 0
+    Instance.new("UICorner", track).CornerRadius = UDim.new(0, 3)
+
+    local fill = Instance.new("Frame", track)
+    fill.BorderSizePixel  = 0
+    fill.Size             = UDim2.new(0, 0, 1, 0)
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 3)
+
+    local knob = Instance.new("Frame", track)
+    knob.Size             = UDim2.new(0, 14, 0, 14)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel  = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 7)
+
+    local minTxt = Instance.new("TextLabel", row)
+    minTxt.Size            = UDim2.new(0, 30, 0, 10)
+    minTxt.Position        = UDim2.new(0, 10, 0, 48)
+    minTxt.BackgroundTransparency = 1
+    minTxt.Text            = tostring(minV)
+    minTxt.TextColor3      = Theme.SubText
+    minTxt.Font            = Enum.Font.Code
+    minTxt.TextSize        = 8
+    minTxt.TextXAlignment  = Enum.TextXAlignment.Left
+
+    local maxTxt = Instance.new("TextLabel", row)
+    maxTxt.Size            = UDim2.new(0, 40, 0, 10)
+    maxTxt.Position        = UDim2.new(1, -50, 0, 48)
+    maxTxt.BackgroundTransparency = 1
+    maxTxt.Text            = tostring(maxV) .. " MAX"
+    maxTxt.TextColor3      = Theme.Red
+    maxTxt.Font            = Enum.Font.Code
+    maxTxt.TextSize        = 8
+    maxTxt.TextXAlignment  = Enum.TextXAlignment.Right
+
+    local function updateFromPct(pct)
+        pct = math.clamp(pct, 0, 1)
+        local raw = minV + pct * (maxV - minV)
+        local val = math.clamp(math.round(raw / 10) * 10, minV, maxV)
+        setV(val)
+        local rp  = (val - minV) / (maxV - minV)
+        fill.Size         = UDim2.new(rp, 0, 1, 0)
+        knob.Position     = UDim2.new(rp, -7, 0.5, -7)
+        local col         = (val >= maxV) and Theme.Red or Theme.Accent
+        valLbl.Text       = val .. ""
+        valLbl.TextColor3 = col
+        fill.BackgroundColor3 = col
+        knob.BackgroundColor3 = (val >= maxV) and Theme.Red or Color3.new(1, 1, 1)
+    end
+    updateFromPct((defaultV - minV) / (maxV - minV))
+
+    local dragging = false
+    local function applyInput(inp)
+        local ax = track.AbsolutePosition.X
+        local aw = track.AbsoluteSize.X
+        updateFromPct((inp.Position.X - ax) / aw)
+    end
+    knob.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then dragging = true end
+    end)
+    track.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then dragging = true ; applyInput(i) end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
+                      or i.UserInputType == Enum.UserInputType.Touch) then applyInput(i) end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+end
+
+--- Adds a < value > stepper row.
+local function FluentStepper(parent, label, fmt, getV, decV, incV)
+    local row = Instance.new("Frame", parent)
+    row.Size             = UDim2.new(0.98, 0, 0, 38)
+    row.BackgroundColor3 = Theme.Button
+    row.BorderSizePixel  = 0
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+    local rowStroke = Instance.new("UIStroke", row) ; rowStroke.Color = Theme.Stroke
+
+    local lbl2 = Instance.new("TextLabel", row)
+    lbl2.Size             = UDim2.new(0.52, 0, 1, 0)
+    lbl2.Position         = UDim2.new(0, 10, 0, 0)
+    lbl2.BackgroundTransparency = 1
+    lbl2.Text             = string.format(fmt, getV())
+    lbl2.TextColor3       = Theme.Text
+    lbl2.Font             = Enum.Font.GothamMedium
+    lbl2.TextSize         = 11
+    lbl2.TextXAlignment   = Enum.TextXAlignment.Left
+
+    local function mkB(t, xoff)
+        local b = Instance.new("TextButton", row)
+        b.Size             = UDim2.new(0, 28, 0, 26)
+        b.Position         = UDim2.new(1, xoff, 0.5, -13)
+        b.BackgroundColor3 = Color3.fromRGB(45, 45, 52)
+        b.TextColor3       = Theme.Text
+        b.Text             = t
+        b.Font             = Enum.Font.GothamBold
+        b.TextSize         = 14
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+    local btnDec = mkB("<", -62)
+    btnDec.MouseButton1Click:Connect(function() decV() ; lbl2.Text = string.format(fmt, getV()) end)
+    local btnInc = mkB(">", -30)
+    btnInc.MouseButton1Click:Connect(function() incV() ; lbl2.Text = string.format(fmt, getV()) end)
+end
+
 -- ═════════════════════════════════════════════════════════════
---  TABS
+--  TABS  ← rename / add icons as needed
 -- ═════════════════════════════════════════════════════════════
-local TabCombat  = CreateTab("Combat",  "🎯")
-local TabUtility = CreateTab("Utility", "🔧")
+local Tab1 = CreateTab("Tab 1", "🏁")
+local Tab2 = CreateTab("Tab 2", "🚜")
+local Tab3 = CreateTab("Tab 3", "🚗")
+local Tab4 = CreateTab("Tab 4", "🌍")
+local Tab5 = CreateTab("Tab 5", "⚙️")
 
 -- ─────────────────────────────────────────────────────────────
---  TAB 1 — COMBAT
+--  TAB 1 CONTENT  ← add your UI elements here
 -- ─────────────────────────────────────────────────────────────
-Section(TabCombat, "  AIMBOT")
-
-FluentToggle(TabCombat, "Max Velocity", "PullStrength ×65, head snap, wall bypass", function(v)
-    local t = FindVelocityTable()
-    if t then
-        if v then
-            pcall(ApplyVelocityON, t)
-            task.defer(HookSmoke)
-            print("[Bloxstrike] Max Velocity: ON")
-        else
-            pcall(ApplyVelocityOFF, t)
-            print("[Bloxstrike] Max Velocity: OFF")
-        end
-        return v
-    else
-        warn("[Bloxstrike] Velocity table not found in gc.")
-        return false
-    end
-end)
-
-FluentToggle(TabCombat, "Zero Spread", "Hooks applySpread or Bullet.Spread object", function(v)
-    spreadActive = v
-    if spreadActive then
-        local ok = TryHookSpread()
-        if not ok then
-            warn("[Bloxstrike] Spread function not found. Fire weapon once then toggle again.")
-            spreadActive = false
-            return false
-        end
-        print("[Bloxstrike] Zero Spread: ON")
-    else
-        if spreadHooked then
-            print("[Bloxstrike] Zero Spread: OFF (hook stays — re-inject to fully restore).")
-        end
-    end
-    return spreadActive
-end)
-
-Section(TabCombat, "  TRIGGER")
-
-FluentToggle(TabCombat, "Boost AutoFire", "Native gc injection, 4-pass field scan", function(v)
-    local t = FindAutoFireTable()
-    if t then
-        if v then
-            pcall(ApplyAutoFireON, t)
-            print("[Bloxstrike] AutoFire Boost: ON")
-        else
-            pcall(ApplyAutoFireOFF, t)
-            print("[Bloxstrike] AutoFire Boost: OFF")
-        end
-        return v
-    else
-        warn("[Bloxstrike] AutoFire table not found in gc.")
-        return false
-    end
-end)
+-- Example usage (uncomment and customise):
+--
+-- Section(Tab1, "  SECTION HEADER")
+--
+-- AddButton(Tab1, "Do Something", function()
+--     -- your code
+-- end)
+--
+-- FluentToggle(Tab1, "Feature Name", "Short description", function(v)
+--     -- Config.Feature = v
+--     return v
+-- end)
+--
+-- FluentSlider(Tab1, "Speed", 50, 500, 200, 300,
+--     function() return Config.Speed end,
+--     function(v) Config.Speed = v end)
+--
+-- FluentStepper(Tab1, "Count: %d", "%d",
+--     function() return Config.Count end,
+--     function() Config.Count = math.max(1, Config.Count - 1) end,
+--     function() Config.Count = Config.Count + 1 end)
 
 -- ─────────────────────────────────────────────────────────────
---  TAB 2 — UTILITY
+--  TAB 2 CONTENT
 -- ─────────────────────────────────────────────────────────────
-Section(TabUtility, "  VISUALS")
 
-local setESP = FluentToggle(TabUtility, "Full Body ESP", "Proximity-sorted highlights, 10 max", function(v)
-    Config.ESP_Enabled = v
-    print("[Bloxstrike] Full Body ESP: " .. (v and "ON" or "OFF"))
-    return v
-end)
-setESP(true)   -- ESP starts enabled on load
+-- ─────────────────────────────────────────────────────────────
+--  TAB 3 CONTENT
+-- ─────────────────────────────────────────────────────────────
 
-Section(TabUtility, "  WEAPON")
+-- ─────────────────────────────────────────────────────────────
+--  TAB 4 CONTENT
+-- ─────────────────────────────────────────────────────────────
 
-FluentToggle(TabUtility, "Infinite Ammo", "Pins Rounds = Capacity on live weapon at 20 Hz", function(v)
-    ammoActive = v
-    if ammoActive then
-        if ammoThread then task.cancel(ammoThread) end
-        ammoThread = task.spawn(function()
-            while ammoActive do
-                local t, af, mf = FindLiveWeaponTable()
-                if t then
-                    local cap = rawget(t, mf)
-                    if type(cap) == "number" and cap > 0 then
-                        t[af] = cap
-                    end
-                end
-                task.wait(0.05)
-            end
-        end)
-        print("[Bloxstrike] Infinite Ammo: ON")
-    else
-        if ammoThread then task.cancel(ammoThread) ; ammoThread = nil end
-        print("[Bloxstrike] Infinite Ammo: OFF")
-    end
-    return ammoActive
-end)
+-- ─────────────────────────────────────────────────────────────
+--  TAB 5 CONTENT
+-- ─────────────────────────────────────────────────────────────
 
 -- ── Activate first tab by default ────────────────────────────
 if AllTabs[1] and AllTabBtns[1] then
-    AllTabs[1].Frame.Visible               = true
+    AllTabs[1].Frame.Visible              = true
     AllTabBtns[1].Btn.BackgroundTransparency = 0.82
-    AllTabBtns[1].Btn.TextColor3           = Theme.Text
-    AllTabBtns[1].Ind.Visible              = true
+    AllTabBtns[1].Btn.TextColor3          = Theme.Text
+    AllTabBtns[1].Ind.Visible             = true
 end
 
-print("[Bloxstrike] v5.8 Fluent UI — Loaded")
-print("  Tabs: Combat (Max Velocity | Zero Spread | AutoFire) | Utility (ESP | Infinite Ammo)")
+print("[UI_Template] Loaded successfully")
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  ██████████████████████████  FEATURE LOGIC  ████████████████████████████
+--  Everything below is new feature code wired into the tabs above.
+--  The template above is completely unaltered.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local RS          = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- ── Config ────────────────────────────────────────────────────────────────
+local ESPConfig = { Enabled = true, Color = Color3.fromRGB(255, 0, 0) }
+local MAX_HIGHLIGHTS  = 10
+local HEADSHOT_LERP   = 0.28   -- snap strength per frame (framerate-independent)
+local FPS_LOOP_RATE   = 2.0    -- seconds between particle kill sweeps
+
+-- ── Shared state ──────────────────────────────────────────────────────────
+local Highlights       = {}
+local PlayerCache      = {}
+local CharRemovedConns = {}
+local VelocityRef      = nil
+local AutoFireRef      = nil
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  HELPERS: team check, distance
+-- ─────────────────────────────────────────────────────────────────────────
+local function IsEnemy(p)
+    if p == LocalPlayer then return false end
+    local my    = tostring(LocalPlayer:GetAttribute("Team") or "Nil")
+    local their = tostring(p:GetAttribute("Team") or "Nil")
+    return my ~= their
+end
+
+local function DistanceTo(p)
+    local mc = LocalPlayer.Character
+    local tc = p.Character
+    if not mc or not tc then return math.huge end
+    local r1 = mc:FindFirstChild("HumanoidRootPart")
+    local r2 = tc:FindFirstChild("HumanoidRootPart")
+    if not r1 or not r2 then return math.huge end
+    return (r1.Position - r2.Position).Magnitude
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  GC SCANNER UTILS
+-- ─────────────────────────────────────────────────────────────────────────
+local function FindVelocityTable()
+    if VelocityRef then return VelocityRef end
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table"
+        and rawget(v, "TargetSelection") and rawget(v, "Magnetism")
+        and rawget(v, "RecoilAssist")   and rawget(v, "Friction") then
+            VelocityRef = v ; return v
+        end
+    end
+end
+
+local AF_ENABLE = {"TriggerEnabled","AutoFireEnabled","AutoFire","FireMode",
+    "triggerEnabled","autoFireEnabled","autoFire","fireMode","Autofire","Trigger",
+    "AutoShoot","autoShoot","EnableAutoFire","enableAutoFire","Enable"}
+local AF_DELAY  = {"Sensitivity","ReactionTime","FireDelay","TriggerDelay",
+    "AutoFireDelay","ShootDelay","DelayBetweenShots","ShotDelay","sensitivity",
+    "reactionTime","fireDelay","triggerDelay","autoFireDelay","shootDelay",
+    "delayBetweenShots","shotDelay","Delay","delay","Rate","rate","Interval","interval"}
+local AF_RANGE  = {"TriggerAngle","TriggerDistance","DetectionRadius","AimAngle",
+    "triggerAngle","triggerDistance","detectionRadius","aimAngle","Range","range",
+    "Radius","radius","Angle","angle","MaxAngle","maxAngle","Distance","distance"}
+
+local function HasAny(t, fields)
+    for _, f in ipairs(fields) do if rawget(t, f) ~= nil then return true end end
+    return false
+end
+
+local function FindAutoFireTable()
+    if AutoFireRef then return AutoFireRef end
+    if VelocityRef then
+        for _, val in pairs(VelocityRef) do
+            if type(val) == "table" and (HasAny(val, AF_ENABLE) or HasAny(val, AF_DELAY)) then
+                AutoFireRef = val ; return val
+            end
+        end
+    end
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table" and v ~= VelocityRef then
+            if HasAny(v, AF_ENABLE) and HasAny(v, AF_DELAY) then AutoFireRef = v; return v end
+        end
+    end
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table" and v ~= VelocityRef then
+            if HasAny(v, AF_ENABLE) then AutoFireRef = v; return v end
+            local n = 0
+            for _, f in ipairs(AF_DELAY) do
+                if rawget(v, f) ~= nil then n = n + 1 end
+                if n >= 2 then AutoFireRef = v; return v end
+            end
+        end
+    end
+    if VelocityRef and (HasAny(VelocityRef, AF_ENABLE) or HasAny(VelocityRef, AF_DELAY)) then
+        AutoFireRef = VelocityRef ; return VelocityRef
+    end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  SMOKE BYPASS
+-- ─────────────────────────────────────────────────────────────────────────
+local smokeHooked = false
+local function HookSmoke()
+    if smokeHooked then return end
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "function" and debug.info(v, "n") == "doesRaycastIntersectSmoke" then
+            hookfunction(v, function() return false end)
+            smokeHooked = true ; break
+        end
+    end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  VELOCITY / AIMBOT
+-- ─────────────────────────────────────────────────────────────────────────
+local function ApplyVelocityON(v)
+    v.TargetSelection.MaxDistance = 10000
+    v.TargetSelection.MaxAngle    = 6.28
+    if v.TargetSelection.CheckWalls  ~= nil then v.TargetSelection.CheckWalls  = false end
+    if v.TargetSelection.VisibleOnly ~= nil then v.TargetSelection.VisibleOnly = false end
+    if rawget(v.TargetSelection,"TargetPart") ~= nil then v.TargetSelection.TargetPart = "Head" end
+    if rawget(v.TargetSelection,"TargetBone") ~= nil then v.TargetSelection.TargetBone = "Head" end
+    if rawget(v.TargetSelection,"Bone")       ~= nil then v.TargetSelection.Bone       = "Head" end
+    v.Magnetism.Enabled            = true
+    v.Magnetism.MaxDistance        = 10000
+    v.Magnetism.PullStrength       = 65.0
+    v.Magnetism.StopThreshold      = 0
+    v.Magnetism.MaxAngleHorizontal = 6.28
+    v.Magnetism.MaxAngleVertical   = 6.28
+    v.Friction.Enabled             = false
+    v.Friction.BubbleRadius        = 0
+    v.Friction.MinSensitivity      = 1.0
+    v.RecoilAssist.Enabled         = true
+    v.RecoilAssist.ReductionAmount = 1.0
+end
+
+local function ApplyVelocityOFF(v)
+    v.Magnetism.PullStrength       = 1.0
+    v.Magnetism.MaxDistance        = 300
+    v.Magnetism.MaxAngleHorizontal = 0.5
+    v.Magnetism.MaxAngleVertical   = 0.5
+    v.Friction.Enabled             = true
+    v.Friction.BubbleRadius        = 5.0
+    v.Friction.MinSensitivity      = 1.0
+    v.RecoilAssist.ReductionAmount = 0.0
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  AUTOFIRE
+-- ─────────────────────────────────────────────────────────────────────────
+local function ApplyAutoFireON(v)
+    for _, f in ipairs(AF_ENABLE) do local c = rawget(v,f); if type(c)=="boolean" then v[f]=true end end
+    for _, f in ipairs(AF_DELAY)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(f=="Sensitivity" or f=="sensitivity") and 1.0 or 0.0 end end
+    for _, f in ipairs(AF_RANGE)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(string.find(string.lower(f),"angle") and 6.28) or 10000 end end
+end
+
+local function ApplyAutoFireOFF(v)
+    for _, f in ipairs(AF_ENABLE) do local c = rawget(v,f); if type(c)=="boolean" then v[f]=false end end
+    for _, f in ipairs(AF_DELAY)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(f=="Sensitivity" or f=="sensitivity") and 0.5 or 0.1 end end
+    for _, f in ipairs(AF_RANGE)  do local c = rawget(v,f); if type(c)=="number"  then v[f]=(string.find(string.lower(f),"angle") and 1.0) or 300 end end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  ESP
+-- ─────────────────────────────────────────────────────────────────────────
+local function RemoveHL(p)
+    if Highlights[p] then Highlights[p]:Destroy(); Highlights[p] = nil end
+end
+local function MakeHL(char)
+    local hl = Instance.new("Highlight")
+    hl.FillTransparency    = 0.5
+    hl.OutlineTransparency = 0
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillColor           = ESPConfig.Color
+    hl.OutlineColor        = ESPConfig.Color
+    hl.Parent              = char
+    return hl
+end
+local function HookCharRem(p)
+    if CharRemovedConns[p] then CharRemovedConns[p]:Disconnect() end
+    CharRemovedConns[p] = p.CharacterRemoving:Connect(function() RemoveHL(p) end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then PlayerCache[p] = true; HookCharRem(p) end
+end
+Players.PlayerAdded:Connect(function(p)
+    if p ~= LocalPlayer then PlayerCache[p] = true; HookCharRem(p) end
+end)
+Players.PlayerRemoving:Connect(function(p)
+    PlayerCache[p] = nil ; RemoveHL(p)
+    if CharRemovedConns[p] then CharRemovedConns[p]:Disconnect(); CharRemovedConns[p] = nil end
+end)
+
+task.spawn(function()
+    while true do
+        local cnt = 0; for _ in pairs(PlayerCache) do cnt = cnt + 1 end
+        task.wait(math.clamp(0.10 + cnt * 0.004, 0.10, 0.35))
+        if not ESPConfig.Enabled then
+            for p in pairs(Highlights) do RemoveHL(p) end
+        else
+            local cands = {}
+            for p in pairs(PlayerCache) do
+                if IsEnemy(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    cands[#cands+1] = { p = p, d = DistanceTo(p) }
+                end
+            end
+            table.sort(cands, function(a,b) return a.d < b.d end)
+            local active = {}
+            for i = 1, math.min(#cands, MAX_HIGHLIGHTS) do active[cands[i].p] = true end
+            for p in pairs(Highlights) do if not active[p] then RemoveHL(p) end end
+            for p in pairs(active) do
+                local char = p.Character
+                local hl = Highlights[p]
+                if not (hl and hl.Parent == char) then
+                    if hl then hl:Destroy() end
+                    Highlights[p] = MakeHL(char)
+                end
+            end
+        end
+    end
+end)
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  INFINITE AMMO  (3-path scanner — fixed for all weapons / all rounds)
+-- ─────────────────────────────────────────────────────────────────────────
+local AMMO_PAIRS = {
+    {"Rounds","Capacity"}, {"rounds","capacity"}, {"CurrentAmmo","MaxAmmo"},
+    {"currentAmmo","maxAmmo"}, {"Ammo","MaxAmmo"}, {"ammo","maxAmmo"},
+    {"CurrentRounds","TotalRounds"},
+}
+
+local _IC = nil
+local function GetIC()
+    if _IC then return _IC end
+    local ok, ic = pcall(function()
+        return require(RS:WaitForChild("Controllers",2):WaitForChild("InventoryController",2))
+    end)
+    if ok and ic and type(ic.getCurrentEquipped) == "function" then _IC = ic end
+    return _IC
+end
+
+local function FindLiveWeaponGC()
+    local gc = getgc(true)
+    local fb = nil
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table" then
+            for _, pr in ipairs(AMMO_PAIRS) do
+                local af, mf = pr[1], pr[2]
+                local rounds = rawget(v, af)
+                local cap    = rawget(v, mf)
+                if type(rounds)=="number" and type(cap)=="number"
+                and cap > 0 and rounds >= 0 and rawget(v,"DamagePerPart")==nil then
+                    -- Path 2: Identifier string = definitive InventoryController state
+                    if type(rawget(v,"Identifier")) == "string" then return v, af, mf end
+                    -- Path 3 fallback candidates
+                    if not fb then
+                        local ok2 = type(rawget(v,"CharacterSpeed"))=="number"
+                               or  type(rawget(v,"LastShotTick"))=="number"
+                               or  rawget(v,"IsEquipped") ~= nil
+                               or  rawget(v,"IsShooting") ~= nil
+                        if ok2 then fb = {v=v, af=af, mf=mf} end
+                    end
+                end
+            end
+        end
+    end
+    if fb then return fb.v, fb.af, fb.mf end
+    return nil, nil, nil
+end
+
+local ammoActive = false
+local ammoThread = nil
+
+local function RunAmmoThread()
+    local ic = GetIC()
+    while ammoActive do
+        local found = false
+        if ic then
+            local ok, eq = pcall(ic.getCurrentEquipped)
+            if ok and eq then
+                for _, pr in ipairs(AMMO_PAIRS) do
+                    local a, m = pr[1], pr[2]
+                    local cap = rawget(eq, m)
+                    if type(cap)=="number" and cap > 0 then
+                        pcall(function() eq[a] = cap end)
+                        found = true ; break
+                    end
+                end
+            end
+        end
+        if not found then
+            local t, a, m = FindLiveWeaponGC()
+            if t then
+                local cap = rawget(t, m)
+                if type(cap)=="number" and cap > 0 then
+                    pcall(function() t[a] = cap end)
+                end
+            end
+        end
+        task.wait(0.05)
+    end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  ZERO SPREAD
+-- ─────────────────────────────────────────────────────────────────────────
+local spreadHooked = false
+local function TryHookSpread()
+    if spreadHooked then return true end
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v)=="function" and debug.info(v,"n")=="applySpread" then
+            hookfunction(v, function(dir) return dir end)
+            spreadHooked = true ; return true
+        end
+    end
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v)=="table" then
+            local sp=rawget(v,"Spread"); local cs=rawget(v,"CharacterSpeed"); local pr=rawget(v,"Properties")
+            if sp ~= nil and cs ~= nil and type(pr)=="table" then
+                pcall(function()
+                    sp.update      = function() end
+                    sp.setPosition = function() rawset(sp,"_pos",0) end
+                    sp.getPosition = function() return 0 end
+                end)
+                spreadHooked = true ; return true
+            end
+        end
+    end
+    return false
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  FPS BOOST
+-- ─────────────────────────────────────────────────────────────────────────
+local fpsActive   = false
+local fpsThread   = nil
+local _origQuality = nil
+
+local function KillParticles(parent)
+    pcall(function()
+        for _, v in ipairs(parent:GetDescendants()) do
+            if v:IsA("ParticleEmitter") or v:IsA("Smoke")
+            or v:IsA("Fire")            or v:IsA("Sparkles") then
+                pcall(function() v.Enabled = false end)
+            end
+        end
+    end)
+end
+
+local function ApplyFPS()
+    local L = game:GetService("Lighting")
+    pcall(function() L.GlobalShadows = false end)
+    pcall(function()
+        for _, o in ipairs(L:GetChildren()) do
+            if o:IsA("Atmosphere") or o:IsA("Sky") then o.Parent = nil end
+        end
+    end)
+    pcall(function()
+        if not _origQuality then _origQuality = settings().Rendering.QualityLevel end
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    end)
+    KillParticles(workspace)
+    KillParticles(L)
+end
+
+local function RestoreFPS()
+    pcall(function() game:GetService("Lighting").GlobalShadows = true end)
+    pcall(function() settings().Rendering.QualityLevel = _origQuality or Enum.QualityLevel.Automatic end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  AUTO HEADSHOT
+-- ─────────────────────────────────────────────────────────────────────────
+local hsActive    = false
+local hsConn      = nil
+local _origCamT   = nil
+
+local function StartHeadshot()
+    if hsConn then hsConn:Disconnect() end
+    local camRef = workspace.CurrentCamera
+    _origCamT = camRef.CameraType
+    pcall(function() camRef.CameraType = Enum.CameraType.Scriptable end)
+
+    hsConn = RunService.RenderStepped:Connect(function(dt)
+        if not hsActive then return end
+        local myChar = LocalPlayer.Character
+        if not myChar then return end
+        local camNow  = workspace.CurrentCamera
+        local camCF   = camNow.CFrame
+        local camPos  = camCF.Position
+        local camLook = camCF.LookVector
+
+        local best, bestScore = nil, -math.huge
+        for _, p in ipairs(Players:GetPlayers()) do
+            if IsEnemy(p) and p.Character then
+                local char = p.Character
+                local head = char:FindFirstChild("Head")
+                local hum  = char:FindFirstChildOfClass("Humanoid")
+                if head and hum and hum.Health > 0 and char:GetAttribute("Dead") ~= true then
+                    local toH = head.Position - camPos
+                    local dist = toH.Magnitude
+                    if dist > 0.5 and dist < 1500 then
+                        local dot = camLook:Dot(toH.Unit)
+                        if dot > 0 then
+                            local score = (dot * dot) / (dist + 1)
+                            if score > bestScore then bestScore = score; best = head end
+                        end
+                    end
+                end
+            end
+        end
+
+        if best then
+            local target = CFrame.lookAt(camPos, best.Position)
+            local lerp   = math.min(1, HEADSHOT_LERP * (dt * 60))
+            camNow.CFrame = camCF:Lerp(target, lerp)
+        end
+    end)
+end
+
+local function StopHeadshot()
+    if hsConn then hsConn:Disconnect(); hsConn = nil end
+    pcall(function()
+        workspace.CurrentCamera.CameraType = _origCamT or Enum.CameraType.Custom
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  WIRE FEATURES INTO TABS
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────
+--  TAB 1  — Combat  (ESP, AutoFire, Max Velocity, Zero Spread, Auto Headshot)
+-- ─────────────────────────────────────────────────────────────
+Section(Tab1, "  ◆ VISUAL")
+
+FluentToggle(Tab1, "Full Body ESP", "Enemy highlights through walls", function(v)
+    ESPConfig.Enabled = v
+    return v
+end)(true)  -- starts ON to match v5.9 default
+
+Section(Tab1, "  ◆ AIMBOT")
+
+FluentToggle(Tab1, "Max Velocity", "Snap aimbot — PullStrength 65, head target", function(v)
+    local t = FindVelocityTable()
+    if t then
+        if v then pcall(ApplyVelocityON, t); task.defer(HookSmoke)
+        else       pcall(ApplyVelocityOFF, t) end
+        return v
+    end
+    warn("[Bloxstrike] Velocity table not found — fire weapon first.")
+    return false
+end)
+
+FluentToggle(Tab1, "Auto Headshot", "RenderStepped hard-snap to enemy Head", function(v)
+    hsActive = v
+    if v then StartHeadshot()
+    else       StopHeadshot() end
+    return v
+end)
+
+FluentToggle(Tab1, "Boost AutoFire", "Injects into AimAssist autofire table", function(v)
+    local t = FindAutoFireTable()
+    if t then
+        if v then pcall(ApplyAutoFireON, t)
+        else       pcall(ApplyAutoFireOFF, t) end
+        return v
+    end
+    warn("[Bloxstrike] AutoFire table not found.")
+    return false
+end)
+
+Section(Tab1, "  ◆ BULLET")
+
+FluentToggle(Tab1, "Zero Spread", "Hooks applySpread — stays hooked until rejoin", function(v)
+    if v then
+        local ok = TryHookSpread()
+        if not ok then warn("[Bloxstrike] Spread fn not found — fire weapon once then toggle.") end
+        return ok and v or false
+    end
+    return false
+end)
+
+-- ─────────────────────────────────────────────────────────────
+--  TAB 2  — Weapon  (Infinite Ammo)
+-- ─────────────────────────────────────────────────────────────
+Section(Tab2, "  ◆ AMMO")
+
+FluentToggle(Tab2, "Infinite Ammo", "3-path scanner — all weapons, all rounds", function(v)
+    ammoActive = v
+    if v then
+        if ammoThread then task.cancel(ammoThread) end
+        ammoThread = task.spawn(RunAmmoThread)
+    else
+        if ammoThread then task.cancel(ammoThread); ammoThread = nil end
+    end
+    return v
+end)
+
+-- ─────────────────────────────────────────────────────────────
+--  TAB 3  — Performance  (FPS Boost)
+-- ─────────────────────────────────────────────────────────────
+Section(Tab3, "  ◆ RENDERING")
+
+FluentToggle(Tab3, "FPS Boost", "Kills shadows, atmosphere, particles + Level01", function(v)
+    fpsActive = v
+    if v then
+        ApplyFPS()
+        if fpsThread then task.cancel(fpsThread) end
+        fpsThread = task.spawn(function()
+            while fpsActive do task.wait(FPS_LOOP_RATE); KillParticles(workspace) end
+        end)
+    else
+        if fpsThread then task.cancel(fpsThread); fpsThread = nil end
+        RestoreFPS()
+    end
+    return v
+end)
+
+-- ─────────────────────────────────────────────────────────────
+--  TAB 4  — (free for future features)
+-- ─────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────
+--  TAB 5  — Info / Notes
+-- ─────────────────────────────────────────────────────────────
+Section(Tab5, "  ◆ VERSION")
+AddButton(Tab5, "v6.0  —  Velocity Suite", function() end)
+Section(Tab5, "  ◆ NOTES")
+AddButton(Tab5, "RapidFire & SpeedBoost REMOVED", function() end)
+AddButton(Tab5, "Infinite Ammo: fixed all weapons", function() end)
+AddButton(Tab5, "Auto Headshot: head snap (RenderStepped)", function() end)
+AddButton(Tab5, "FPS Boost: shadows off + Level01", function() end)
+
+-- ── Done ─────────────────────────────────────────────────────
+print("[Bloxstrike] v6.0 Loaded — UI: Fluent Template")
+print("  Tab 1: ESP | MaxVelocity | AutoHeadshot | AutoFire | ZeroSpread")
+print("  Tab 2: InfiniteAmmo (3-path fixed)")
+print("  Tab 3: FPS Boost")
+print("  Tab 5: Info")
