@@ -1275,33 +1275,47 @@ end)
 -- box 0.6s later after you've bounced off. Repeat = infinite jumps.
 -- Box auto-cleans on death. No velocity write. No stat change.
 
-local jumpBoxActive = false
-local jumpBoxConn   = nil
-local JBOX_HOLD     = 0.55   -- seconds the box exists before dissolving
-local JBOX_SIZE     = 6      -- wide enough to always land on
+-- ── Jump Box ───────────────────────────────────────────────────
+-- WHY the old JumpRequest approach didn't work:
+-- JumpRequest fires while the character is still ON the ground.
+-- Spawning a box at footY then = inside/flush with the floor geometry.
+-- Roblox silently rejects parts that overlap existing solid geometry,
+-- so the box never actually appeared.
+--
+-- NEW APPROACH — Peak detection:
+-- A Heartbeat loop watches vertical velocity (AssemblyLinearVelocity.Y).
+-- When it tips from positive → 0 or negative the character is at peak
+-- height and fully airborne. We spawn the box there — open air, no
+-- floor geometry to block it. Character falls back down, lands on it,
+-- gets another jump. Repeat infinitely.
+
+local jumpBoxActive  = false
+local jumpBoxConn    = nil
+local jbox_wasUp     = false
+local JBOX_HOLD      = 1.4    -- seconds before box dissolves (long enough to land)
+local JBOX_SIZE      = 7      -- wide platform so mobile landing is forgiving
 
 local function SpawnJumpBox()
     local char = LocalPlayer.Character
     if not char then return end
     local hrp  = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    local hum  = char:FindFirstChildOfClass("Humanoid")
 
-    local footY = hrp.Position.Y - 3.1   -- just below feet
+    -- Spawn at CURRENT foot level — character is airborne at this point
+    local footY = hrp.Position.Y - 3.0
     local box   = Instance.new("Part")
-    box.Size             = Vector3.new(JBOX_SIZE, 0.4, JBOX_SIZE)
+    box.Size             = Vector3.new(JBOX_SIZE, 0.5, JBOX_SIZE)
     box.CFrame           = CFrame.new(hrp.Position.X, footY, hrp.Position.Z)
     box.Anchored         = true
     box.CanCollide       = true
     box.CastShadow       = false
     box.Material         = Enum.Material.SmoothPlastic
     box.Color            = Color3.fromRGB(0, 200, 140)
-    box.Transparency     = 0.55
+    box.Transparency     = 0.5
     box.TopSurface       = Enum.SurfaceType.Smooth
     box.BottomSurface    = Enum.SurfaceType.Smooth
     box.Parent           = workspace
 
-    -- Dissolve after hold time
     task.delay(JBOX_HOLD, function()
         if box and box.Parent then box:Destroy() end
     end)
@@ -1309,24 +1323,112 @@ end
 
 local function StartJumpBox()
     if jumpBoxConn then return end
-    jumpBoxConn = UserInputService.JumpRequest:Connect(function()
-        -- JumpRequest fires on mobile jump button AND Space bar
+    jbox_wasUp = false
+    jumpBoxConn = RunService.Heartbeat:Connect(function()
         if not jumpBoxActive then return end
-        SpawnJumpBox()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp  = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local vy   = hrp.AssemblyLinearVelocity.Y
+        -- Track rising phase
+        if vy > 3 then
+            jbox_wasUp = true
+        end
+        -- Tip point: was going up, now at/below 0 → spawn box
+        if jbox_wasUp and vy <= 0.5 then
+            jbox_wasUp = false
+            SpawnJumpBox()
+        end
     end)
 end
 
 local function StopJumpBox()
     jumpBoxActive = false
     if jumpBoxConn then jumpBoxConn:Disconnect(); jumpBoxConn = nil end
+    jbox_wasUp = false
 end
 
 LocalPlayer.CharacterRemoving:Connect(StopJumpBox)
 
 Section(Tab4, "  ◆ JUMP BOX")
-FluentToggle(Tab4, "Jump Box", "Spawns platform under feet on every jump tap", function(v)
+FluentToggle(Tab4, "Jump Box", "Auto-platform at jump peak — reliable on mobile", function(v)
     jumpBoxActive = v
     if v then StartJumpBox() else StopJumpBox() end
+    return v
+end)
+
+-- ── Fall Cushion ───────────────────────────────────────────────
+-- The wall-top death: two Char.Damaged hits 0.2ms apart = invisible
+-- damage bricks at the top of wall geometry. When you clip into those
+-- bricks they apply lethal damage before you can react.
+--
+-- Fall Cushion defence: Heartbeat watches downward velocity.
+-- The moment it exceeds the lethal threshold (~40 studs/s) it spawns
+-- a thick cushion box 4 studs BELOW the character's current position.
+-- The character lands on it mid-air, velocity resets to 0, then they
+-- can step off safely. Each cushion box only spawns if the character
+-- has fallen at least 6 studs since the last one (prevents spam).
+-- This means even a fall from the top of a wall only ever travels
+-- a few studs before hitting a cushion — well under lethal velocity.
+
+local fallCushionActive = false
+local fallCushionConn   = nil
+local fc_lastY          = math.huge
+local FC_TRIGGER_VY     = -38   -- studs/s downward to trigger a catch
+local FC_MIN_GAP        = 6     -- studs between successive cushions
+
+local function SpawnCushion(hrp)
+    local catchY = hrp.Position.Y - 4
+    local box    = Instance.new("Part")
+    box.Size             = Vector3.new(9, 1.2, 9)
+    box.CFrame           = CFrame.new(hrp.Position.X, catchY, hrp.Position.Z)
+    box.Anchored         = true
+    box.CanCollide       = true
+    box.CastShadow       = false
+    box.Material         = Enum.Material.SmoothPlastic
+    box.Color            = Color3.fromRGB(255, 160, 30)
+    box.Transparency     = 0.45
+    box.TopSurface       = Enum.SurfaceType.Smooth
+    box.BottomSurface    = Enum.SurfaceType.Smooth
+    box.Parent           = workspace
+    task.delay(2.5, function()
+        if box and box.Parent then box:Destroy() end
+    end)
+    fc_lastY = hrp.Position.Y
+end
+
+local function StartFallCushion()
+    if fallCushionConn then return end
+    fc_lastY = math.huge
+    fallCushionConn = RunService.Heartbeat:Connect(function()
+        if not fallCushionActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp  = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local vy   = hrp.AssemblyLinearVelocity.Y
+        local curY = hrp.Position.Y
+        -- Only catch if falling fast AND haven't spawned one too recently
+        if vy <= FC_TRIGGER_VY and (fc_lastY - curY) >= FC_MIN_GAP then
+            SpawnCushion(hrp)
+        end
+        -- Reset gap tracker when grounded
+        if vy > -5 then fc_lastY = math.huge end
+    end)
+end
+
+local function StopFallCushion()
+    fallCushionActive = false
+    if fallCushionConn then fallCushionConn:Disconnect(); fallCushionConn = nil end
+end
+
+LocalPlayer.CharacterRemoving:Connect(StopFallCushion)
+
+Section(Tab4, "  ◆ FALL CUSHION")
+FluentToggle(Tab4, "Fall Cushion", "Auto-catch boxes when falling fast — prevents wall-top death", function(v)
+    fallCushionActive = v
+    if v then StartFallCushion() else StopFallCushion() end
     return v
 end)
 
@@ -1907,9 +2009,9 @@ FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to re
 end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.1 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v7.2 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: LowGravity | Noclip | JumpBox | PlatformSpawner")
+print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
