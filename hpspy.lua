@@ -1419,9 +1419,9 @@ local function RemoveAllBoxes()
     spawnedBoxes = {}
 end
 
--- Keyboard hook for [E] = place, [Q] = undo
+-- Keyboard support kept for PC users
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end          -- ignore if typing in chat
+    if gameProcessed then return end
     if not BOX_ENABLED then return end
     if input.KeyCode == Enum.KeyCode.E then
         SpawnBox()
@@ -1433,11 +1433,91 @@ end)
 -- Clean up on respawn so boxes don't float in mid-air after death
 LocalPlayer.CharacterRemoving:Connect(RemoveAllBoxes)
 
+-- ── Mobile HUD buttons (shown/hidden with the toggle) ─────────
+-- Two large thumb-friendly buttons anchored to the bottom-right corner
+-- of the screen, outside the main UI panel so they're always reachable
+-- while moving around in-game.
+
+local mobileHUD = Instance.new("ScreenGui", guiTarget)
+mobileHUD.Name           = "PlatformSpawnerHUD"
+mobileHUD.ResetOnSpawn   = false
+mobileHUD.IgnoreGuiInset = true
+mobileHUD.Enabled        = false   -- shown only when toggle is ON
+
+local HUD_BTN_SIZE = 68   -- px — big enough for thumbs
+
+-- PLACE button (bottom-right)
+local btnPlace = Instance.new("TextButton", mobileHUD)
+btnPlace.Size                    = UDim2.new(0, HUD_BTN_SIZE, 0, HUD_BTN_SIZE)
+btnPlace.Position                = UDim2.new(1, -(HUD_BTN_SIZE + 12), 1, -(HUD_BTN_SIZE + 12))
+btnPlace.BackgroundColor3        = Color3.fromRGB(0, 170, 120)
+btnPlace.BackgroundTransparency  = 0.15
+btnPlace.Text                    = "📦"
+btnPlace.TextSize                = 28
+btnPlace.Font                    = Enum.Font.GothamBold
+btnPlace.TextColor3              = Color3.new(1, 1, 1)
+btnPlace.AutoButtonColor         = false
+Instance.new("UICorner", btnPlace).CornerRadius = UDim.new(1, 0)
+local placeStroke = Instance.new("UIStroke", btnPlace)
+placeStroke.Color     = Color3.fromRGB(0, 200, 140)
+placeStroke.Thickness = 2
+
+-- Counter label above PLACE button
+local placeCount = Instance.new("TextLabel", btnPlace)
+placeCount.Size                  = UDim2.new(1, 0, 0, 18)
+placeCount.Position              = UDim2.new(0, 0, 0, -20)
+placeCount.BackgroundTransparency = 1
+placeCount.Text                  = "0 boxes"
+placeCount.TextColor3            = Color3.fromRGB(0, 200, 140)
+placeCount.Font                  = Enum.Font.GothamBold
+placeCount.TextSize              = 10
+
+-- UNDO button (left of PLACE)
+local btnUndo = Instance.new("TextButton", mobileHUD)
+btnUndo.Size                     = UDim2.new(0, HUD_BTN_SIZE, 0, HUD_BTN_SIZE)
+btnUndo.Position                 = UDim2.new(1, -(HUD_BTN_SIZE * 2 + 20), 1, -(HUD_BTN_SIZE + 12))
+btnUndo.BackgroundColor3         = Color3.fromRGB(50, 50, 58)
+btnUndo.BackgroundTransparency   = 0.15
+btnUndo.Text                     = "↩️"
+btnUndo.TextSize                 = 26
+btnUndo.Font                     = Enum.Font.GothamBold
+btnUndo.TextColor3               = Color3.new(1, 1, 1)
+btnUndo.AutoButtonColor          = false
+Instance.new("UICorner", btnUndo).CornerRadius = UDim.new(1, 0)
+local undoStroke = Instance.new("UIStroke", btnUndo)
+undoStroke.Color     = Color3.fromRGB(100, 100, 110)
+undoStroke.Thickness = 2
+
+-- Visual feedback: flash the button briefly on tap
+local function FlashBtn(btn, col)
+    local orig = btn.BackgroundColor3
+    btn.BackgroundColor3 = col
+    task.delay(0.12, function() btn.BackgroundColor3 = orig end)
+end
+
+btnPlace.MouseButton1Click:Connect(function()
+    if not BOX_ENABLED then return end
+    SpawnBox()
+    placeCount.Text = #spawnedBoxes .. " box" .. (#spawnedBoxes == 1 and "" or "es")
+    FlashBtn(btnPlace, Color3.fromRGB(0, 230, 160))
+end)
+
+btnUndo.MouseButton1Click:Connect(function()
+    if not BOX_ENABLED then return end
+    RemoveLastBox()
+    placeCount.Text = #spawnedBoxes .. " box" .. (#spawnedBoxes == 1 and "" or "es")
+    FlashBtn(btnUndo, Color3.fromRGB(90, 90, 100))
+end)
+
 -- Wire into Tab4 UI
 Section(Tab4, "  ◆ PLATFORM SPAWNER")
 
-FluentToggle(Tab4, "Platform Spawner", "[E] Place  [Q] Undo — client-only, BAC-safe", function(v)
-    BOX_ENABLED = v
+FluentToggle(Tab4, "Platform Spawner", "Tap 📦 to place  ↩️ to undo — BAC-safe", function(v)
+    BOX_ENABLED          = v
+    mobileHUD.Enabled    = v
+    if not v then
+        placeCount.Text  = "0 boxes"
+    end
     return v
 end)
 
@@ -1448,6 +1528,7 @@ FluentSlider(Tab4, "Box Size", 2, 16, 4, 6,
 
 AddButton(Tab4, "🗑️  Remove All Platforms", function()
     RemoveAllBoxes()
+    placeCount.Text = "0 boxes"
 end)
 
 -- ─────────────────────────────────────────────────────────────
@@ -1645,14 +1726,14 @@ end)
 PushLog("SYS", "Ban Logger initialised — watching remotes + velocity")
 
 Section(Tab5, "  ◆ VERSION")
-AddButton(Tab5, "v6.8  —  Velocity Suite", function() end)
+AddButton(Tab5, "v6.9  —  Velocity Suite", function() end)
 Section(Tab5, "  ◆ NOTES")
 AddButton(Tab5, "JUMP: only Low Gravity (>= 120) is safe", function() end)
 AddButton(Tab5, "BAN: see scroll panel above for pre-ban log", function() end)
 AddButton(Tab5, "VEL spikes show what BAC sees server-side", function() end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v6.8 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v6.9 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
