@@ -1185,35 +1185,128 @@ end)
 --  TAB 4  — Movement  (Jump Power + Fly)
 -- ─────────────────────────────────────────────────────────────
 
--- ── Jump Power ────────────────────────────────────────────────
-local jumpPower  = 50   -- Roblox default
-local jumpConn   = nil
+-- ── GC Character Object Scanner ───────────────────────────────
+-- Fingerprint: same pattern as the aimbot's velocity table scan.
+-- The Character class instance has IsJumping, Stamina, ReadyToJump,
+-- IsLanded — unique enough to identify it safely.
 
-local function ApplyJump()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.UseJumpPower = true
-        hum.JumpPower    = jumpPower
+local _CharObj = nil
+local function FindCharObject()
+    if _CharObj and rawget(_CharObj, "IsJumping") ~= nil then return _CharObj end
+    _CharObj = nil
+    local gc = getgc(true)
+    for i = 1, #gc do
+        local v = gc[i]
+        if type(v) == "table"
+        and rawget(v, "IsJumping")     ~= nil
+        and rawget(v, "Stamina")       ~= nil
+        and rawget(v, "ReadyToJump")   ~= nil
+        and rawget(v, "IsLanded")      ~= nil
+        and rawget(v, "IsJumpRequested") ~= nil then
+            _CharObj = v
+            return v
+        end
     end
 end
 
--- Re-apply on respawn so the value survives death
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(0.1)
-    ApplyJump()
-end)
+-- Invalidate cache on respawn so we re-scan for the new instance
+LocalPlayer.CharacterAdded:Connect(function() _CharObj = nil end)
+
+-- ── Multi-Jump (GC state reset — no velocity write, no stat write) ─────────
+-- The jump gate is:  not p95.IsJumping AND p95.IsJumpRequested AND p95.Stamina >= 20
+-- While airborne we reset IsJumping=false + ReadyToJump=true + Stamina=100
+-- each frame → the controller sees a "grounded ready" state and allows
+-- another jump. The server only sees normal jump remotes firing — no
+-- velocity anomaly, no stat change from our side.
+
+local multiJumpActive = false
+local multiJumpConn   = nil
+local MULTI_JUMP_DELAY = 0.12   -- seconds after jump before re-arm (prevents instant double)
+
+local function StartMultiJump()
+    if multiJumpConn then return end
+    multiJumpConn = RunService.Heartbeat:Connect(function()
+        if not multiJumpActive then return end
+        local obj = FindCharObject()
+        if not obj then return end
+        -- Only re-arm while genuinely airborne (IsJumping=true means we left ground)
+        if rawget(obj, "IsJumping") == true then
+            local lastJump = rawget(obj, "LastJumpTick") or 0
+            if tick() - lastJump > MULTI_JUMP_DELAY then
+                pcall(function()
+                    obj.IsJumping   = false
+                    obj.ReadyToJump = true
+                    obj.IsLanded    = false
+                    obj.Stamina     = 100
+                end)
+            end
+        end
+        -- Always keep stamina topped up so the >= 20 gate never blocks
+        pcall(function()
+            if (rawget(obj, "Stamina") or 100) < 40 then
+                obj.Stamina = 100
+            end
+        end)
+    end)
+end
+
+local function StopMultiJump()
+    multiJumpActive = false
+    if multiJumpConn then multiJumpConn:Disconnect(); multiJumpConn = nil end
+end
 
 Section(Tab4, "  ◆ JUMP")
 
-FluentSlider(Tab4, "Jump Power", 50, 500, 50, 200,
-    function() return jumpPower end,
-    function(v)
-        jumpPower = v
-        ApplyJump()
+-- ── Noclip ────────────────────────────────────────────────────
+-- Sets CanCollide = false on every BasePart in the character every
+-- Heartbeat so the game's own collision-restore logic can't fight us.
+-- HumanoidRootPart needs special treatment: if you kill its collision
+-- entirely the character falls through the floor on disable — so we
+-- restore it carefully on toggle-off.
+
+local noclipActive = false
+local noclipConn   = nil
+
+local function StartNoclip()
+    if noclipConn then return end
+    noclipActive = true
+    noclipConn = RunService.Heartbeat:Connect(function()
+        if not noclipActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = false
+            end
+        end
+        -- HumanoidRootPart: disable collision but keep it so physics don't break
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.CanCollide = false end
+    end)
+end
+
+local function StopNoclip()
+    noclipActive = false
+    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+    -- Restore collision so character lands properly
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
     end
-)
+end
+
+LocalPlayer.CharacterRemoving:Connect(StopNoclip)
+
+Section(Tab4, "  ◆ NOCLIP")
+
+FluentToggle(Tab4, "Noclip", "Walk through walls — Heartbeat CanCollide bypass", function(v)
+    if v then StartNoclip() else StopNoclip() end
+    return v
+end)
 
 -- ── Fly ───────────────────────────────────────────────────────
 local flyActive  = false
@@ -1298,6 +1391,53 @@ end
 -- Auto-stop on death / respawn
 LocalPlayer.CharacterRemoving:Connect(StopFly)
 
+FluentToggle(Tab4, "Multi-Jump", "GC state reset — re-arms jump in air, no velocity write", function(v)
+    multiJumpActive = v
+    if v then StartMultiJump() else StopMultiJump() end
+    return v
+end)
+
+-- ── Low Gravity ────────────────────────────────────────────────
+-- Changes workspace.Gravity locally. Client physics simulate a full
+-- consistent arc — no velocity spike, nothing server-side to diff.
+-- We re-apply every 2s because the server occasionally resets it.
+
+local gravActive   = false
+local gravConn     = nil
+local NORMAL_GRAV  = 196.2
+local LOW_GRAV     = 80    -- sweet spot: floaty but not obviously broken
+
+local function StartGravity()
+    workspace.Gravity = LOW_GRAV
+    if gravConn then gravConn:Disconnect() end
+    gravConn = RunService.Heartbeat:Connect(function()
+        if not gravActive then return end
+        if workspace.Gravity ~= LOW_GRAV then
+            workspace.Gravity = LOW_GRAV
+        end
+    end)
+end
+
+local function StopGravity()
+    gravActive = false
+    if gravConn then gravConn:Disconnect(); gravConn = nil end
+    workspace.Gravity = NORMAL_GRAV
+end
+
+FluentToggle(Tab4, "Low Gravity", "Floaty arc — consistent physics, no spike", function(v)
+    gravActive = v
+    if v then StartGravity() else StopGravity() end
+    return v
+end)
+
+FluentSlider(Tab4, "Gravity Value", 10, 196, 80, 80,
+    function() return LOW_GRAV end,
+    function(v)
+        LOW_GRAV = v
+        if gravActive then workspace.Gravity = v end
+    end
+)
+
 Section(Tab4, "  ◆ FLY")
 
 FluentToggle(Tab4, "Fly", "WASD + Space/Ctrl  |  " .. FLY_SPEED .. " studs/s", function(v)
@@ -1314,7 +1454,7 @@ end)
 --  TAB 5  — Info / Notes
 -- ─────────────────────────────────────────────────────────────
 Section(Tab5, "  ◆ VERSION")
-AddButton(Tab5, "v6.2  —  Velocity Suite", function() end)
+AddButton(Tab5, "v6.5  —  Velocity Suite", function() end)
 Section(Tab5, "  ◆ NOTES")
 AddButton(Tab5, "AutoFire & AutoHeadshot REMOVED", function() end)
 AddButton(Tab5, "Infinite Ammo: Heartbeat, IsReloading fix", function() end)
@@ -1325,5 +1465,5 @@ print("[Bloxstrike] v6.3 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: JumpPower | Fly")
+print("  Tab 4: MultiJump | LowGravity | Fly | Noclip")
 print("  Tab 5: Info")
