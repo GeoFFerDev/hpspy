@@ -1249,8 +1249,8 @@ local function StartNoclip()
         end
     end)
 end
-local function StopNoclip()
-    noclipActive = false
+local function StopNoclip(keepFlag)
+    if not keepFlag then noclipActive = false end
     if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
     local char = LocalPlayer.Character
     if char then
@@ -1259,7 +1259,6 @@ local function StopNoclip()
         end
     end
 end
-LocalPlayer.CharacterRemoving:Connect(StopNoclip)
 
 Section(Tab4, "  ◆ NOCLIP")
 FluentToggle(Tab4, "Noclip", "Heartbeat CanCollide bypass — walk through walls", function(v)
@@ -1358,13 +1357,11 @@ local function StartJumpBox()
     end)
 end
 
-local function StopJumpBox()
-    jumpBoxActive = false
+local function StopJumpBox(keepFlag)
+    if not keepFlag then jumpBoxActive = false end
     if jumpBoxConn then jumpBoxConn:Disconnect(); jumpBoxConn = nil end
     CleanJumpBoxes()
 end
-
-LocalPlayer.CharacterRemoving:Connect(StopJumpBox)
 
 Section(Tab4, "  ◆ JUMP BOX")
 FluentToggle(Tab4, "Jump Box", "Tap jump → predictable forward box + stacks — permanent", function(v)
@@ -1433,12 +1430,10 @@ local function StartFallCushion()
     end)
 end
 
-local function StopFallCushion()
-    fallCushionActive = false
+local function StopFallCushion(keepFlag)
+    if not keepFlag then fallCushionActive = false end
     if fallCushionConn then fallCushionConn:Disconnect(); fallCushionConn = nil end
 end
-
-LocalPlayer.CharacterRemoving:Connect(StopFallCushion)
 
 Section(Tab4, "  ◆ FALL CUSHION")
 FluentToggle(Tab4, "Fall Cushion", "Auto-catch boxes when falling fast — prevents wall-top death", function(v)
@@ -1550,7 +1545,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 -- Clean up on respawn so boxes don't float in mid-air after death
-LocalPlayer.CharacterRemoving:Connect(RemoveAllBoxes)
+-- platform boxes cleaned centrally on respawn
 
 -- ── Mobile HUD buttons (shown/hidden with the toggle) ─────────
 -- Two large thumb-friendly buttons anchored to the bottom-right corner
@@ -1680,19 +1675,15 @@ end
 
 local function StartKZPhase()
     if LocalPlayer.Character then AttachKZPhase(LocalPlayer.Character) end
-    kz_conn = LocalPlayer.CharacterAdded:Connect(AttachKZPhase)
+    -- CharacterAdded handled centrally below
 end
 
-local function StopKZPhase()
-    kzPhaseActive = false
-    kzPhasing     = false
-    if kz_conn     then kz_conn:Disconnect();     kz_conn = nil     end
+local function StopKZPhase(keepFlag)
+    if not keepFlag then kzPhaseActive = false end
+    kzPhasing = false
+    if kz_conn      then kz_conn:Disconnect();      kz_conn = nil      end
     if kz_char_conn then kz_char_conn:Disconnect(); kz_char_conn = nil end
 end
-
-LocalPlayer.CharacterRemoving:Connect(function()
-    kz_lastHealth = 100; kzPhasing = false
-end)
 
 Section(Tab4, "  ◆ KILL ZONE PHASE")
 FluentToggle(Tab4, "Kill Zone Phase",
@@ -1700,6 +1691,51 @@ FluentToggle(Tab4, "Kill Zone Phase",
     kzPhaseActive = v
     if v then StartKZPhase() else StopKZPhase() end
     return v
+end)
+
+-- ─────────────────────────────────────────────────────────────
+--  CENTRAL RESPAWN HANDLER
+--  CharacterRemoving: cleanly disconnects all connections without
+--    clearing Active flags — UI toggles stay exactly as the player
+--    left them.
+--  CharacterAdded: auto-restarts every feature that was ON so the
+--    player never has to re-toggle after dying or changing maps.
+-- ─────────────────────────────────────────────────────────────
+
+LocalPlayer.CharacterRemoving:Connect(function()
+    -- Disconnect connections (keepFlag=true so Active flags survive)
+    StopNoclip(true)
+    StopJumpBox(true)
+    StopFallCushion(true)
+    StopKZPhase(true)
+    -- Clean up physical objects that shouldn't survive death
+    CleanJumpBoxes()
+    RemoveAllBoxes()
+    -- Reset per-life state
+    kz_lastHealth = 100
+    kzPhasing     = false
+    fc_lastY      = math.huge
+    jbox_wasUp    = false
+    -- Low gravity restores on death naturally (workspace.Gravity resets server-side)
+    if gravConn then gravConn:Disconnect(); gravConn = nil end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    -- Wait for character to fully load before reattaching
+    char:WaitForChild("HumanoidRootPart", 10)
+    task.wait(0.1)  -- one extra frame so physics is settled
+
+    -- Restart every feature that is still toggled ON
+    if gravActive      then StartGravity()                      end
+    if noclipActive    then StartNoclip()                       end
+    if jumpBoxActive   then StartJumpBox()                      end
+    if fallCushionActive then StartFallCushion()                end
+    if kzPhaseActive   then AttachKZPhase(char)                 end
+    if BOX_ENABLED     then
+        -- Respawn HUD is still enabled, just update count label
+        placeCount.Text = "0 boxes"
+    end
+    if RADAR_ENABLED   then StartRadar()                        end
 end)
 
 -- Wire into Tab4 UI
@@ -2096,7 +2132,7 @@ FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to re
 end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.4 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v7.5 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
