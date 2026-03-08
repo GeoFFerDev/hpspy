@@ -1275,25 +1275,20 @@ end)
 -- box 0.6s later after you've bounced off. Repeat = infinite jumps.
 -- Box auto-cleans on death. No velocity write. No stat change.
 
--- ── Jump Box ───────────────────────────────────────────────────
--- WHY the old JumpRequest approach didn't work:
--- JumpRequest fires while the character is still ON the ground.
--- Spawning a box at footY then = inside/flush with the floor geometry.
--- Roblox silently rejects parts that overlap existing solid geometry,
--- so the box never actually appeared.
---
--- NEW APPROACH — Peak detection:
--- A Heartbeat loop watches vertical velocity (AssemblyLinearVelocity.Y).
--- When it tips from positive → 0 or negative the character is at peak
--- height and fully airborne. We spawn the box there — open air, no
--- floor geometry to block it. Character falls back down, lands on it,
--- gets another jump. Repeat infinitely.
+-- ── Jump Box ───────────────────────────────────────────────
+-- Same predictable placement logic as the manual platform spawner:
+-- box appears one step ahead of the character's facing direction,
+-- top-surface flush with their feet. If the last jump box is close
+-- (within 2.5× size) the new one stacks ON TOP of it, giving a
+-- natural rising staircase with every tap.
+-- Uses JumpRequest (mobile button + Space) — NO Heartbeat needed.
+-- All boxes are permanent and tracked in jumpBoxList; cleaned on
+-- respawn or toggle-off.
 
 local jumpBoxActive  = false
 local jumpBoxConn    = nil
-local jbox_wasUp     = false
-local JBOX_SIZE      = 7      -- wide platform so mobile landing is forgiving
-local jumpBoxList    = {}      -- all jump boxes — cleaned on respawn
+local JBOX_SIZE      = 7
+local jumpBoxList    = {}
 
 local function SpawnJumpBox()
     local char = LocalPlayer.Character
@@ -1301,44 +1296,51 @@ local function SpawnJumpBox()
     local hrp  = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    -- Spawn at CURRENT foot level — character is airborne at this point
-    local footY = hrp.Position.Y - 3.0
-    local box   = Instance.new("Part")
-    box.Size             = Vector3.new(JBOX_SIZE, 0.5, JBOX_SIZE)
-    box.CFrame           = CFrame.new(hrp.Position.X, footY, hrp.Position.Z)
-    box.Anchored         = true
-    box.CanCollide       = true
-    box.CastShadow       = false
-    box.Material         = Enum.Material.SmoothPlastic
-    box.Color            = Color3.fromRGB(0, 200, 140)
-    box.Transparency     = 0.5
-    box.TopSurface       = Enum.SurfaceType.Smooth
-    box.BottomSurface    = Enum.SurfaceType.Smooth
-    box.Parent           = workspace
-    -- Permanent — stays until respawn (cleaned in StopJumpBox / CharacterRemoving)
-    table.insert(jumpBoxList, box)
-end
+    -- Position: 1.2× size ahead, top flush with feet (mirrors platform spawner)
+    local ahead   = hrp.CFrame.LookVector * (JBOX_SIZE * 1.2)
+    local origin  = hrp.Position + ahead
+    local feetY   = hrp.Position.Y - 3
+    local boxTopY = feetY + JBOX_SIZE * 0.45 / 2   -- half-height of the box
 
-local function StartJumpBox()
-    if jumpBoxConn then return end
-    jbox_wasUp = false
-    jumpBoxConn = RunService.Heartbeat:Connect(function()
-        if not jumpBoxActive then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        local hrp  = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        local vy   = hrp.AssemblyLinearVelocity.Y
-        -- Track rising phase
-        if vy > 3 then
-            jbox_wasUp = true
+    -- Stack on last jump box if nearby
+    if #jumpBoxList > 0 then
+        local last = jumpBoxList[#jumpBoxList]
+        if last and last.Parent then
+            local flat = (Vector3.new(origin.X, 0, origin.Z)
+                        - Vector3.new(last.Position.X, 0, last.Position.Z)).Magnitude
+            if flat < JBOX_SIZE * 2.5 then
+                boxTopY = last.Position.Y + last.Size.Y / 2 + JBOX_SIZE * 0.45 / 2
+            end
         end
-        -- Tip point: was going up, now at/below 0 → spawn box
-        if jbox_wasUp and vy <= 0.5 then
-            jbox_wasUp = false
-            SpawnJumpBox()
-        end
-    end)
+    end
+
+    local pos = Vector3.new(origin.X, boxTopY, origin.Z)
+    local box = Instance.new("Part")
+    box.Name          = "JBox_" .. #jumpBoxList
+    box.Size          = Vector3.new(JBOX_SIZE, JBOX_SIZE * 0.45, JBOX_SIZE)
+    box.Position      = pos
+    box.Anchored      = true
+    box.CanCollide    = true
+    box.CastShadow    = false
+    box.Material      = Enum.Material.SmoothPlastic
+    box.Color         = Color3.fromRGB(0, 200, 140)
+    box.Transparency  = 0.45
+    box.TopSurface    = Enum.SurfaceType.Smooth
+    box.BottomSurface = Enum.SurfaceType.Smooth
+    -- Small counter label
+    local bb  = Instance.new("BillboardGui", box)
+    bb.Size         = UDim2.new(0, 36, 0, 16)
+    bb.StudsOffset  = Vector3.new(0, box.Size.Y, 0)
+    bb.AlwaysOnTop  = true
+    local lbl = Instance.new("TextLabel", bb)
+    lbl.Size                 = UDim2.new(1,0,1,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                 = "J#" .. (#jumpBoxList + 1)
+    lbl.TextColor3           = Color3.fromRGB(0, 200, 140)
+    lbl.Font                 = Enum.Font.GothamBold
+    lbl.TextSize             = 9
+    box.Parent = workspace
+    table.insert(jumpBoxList, box)
 end
 
 local function CleanJumpBoxes()
@@ -1348,19 +1350,24 @@ local function CleanJumpBoxes()
     jumpBoxList = {}
 end
 
+local function StartJumpBox()
+    if jumpBoxConn then return end
+    jumpBoxConn = UserInputService.JumpRequest:Connect(function()
+        if not jumpBoxActive then return end
+        SpawnJumpBox()
+    end)
+end
+
 local function StopJumpBox()
     jumpBoxActive = false
     if jumpBoxConn then jumpBoxConn:Disconnect(); jumpBoxConn = nil end
-    jbox_wasUp = false
     CleanJumpBoxes()
 end
 
-LocalPlayer.CharacterRemoving:Connect(function()
-    StopJumpBox()
-end)
+LocalPlayer.CharacterRemoving:Connect(StopJumpBox)
 
 Section(Tab4, "  ◆ JUMP BOX")
-FluentToggle(Tab4, "Jump Box", "Auto-platform at jump peak — reliable on mobile", function(v)
+FluentToggle(Tab4, "Jump Box", "Tap jump → predictable forward box + stacks — permanent", function(v)
     jumpBoxActive = v
     if v then StartJumpBox() else StopJumpBox() end
     return v
@@ -1624,65 +1631,74 @@ end)
 
 
 
--- ── Health Shield ─────────────────────────────────────────────
--- Wall-top kill zones fire via Part.Touched on the server — they
--- deal damage directly server-side, no remote needed.  Our client
--- cannot block the damage BUT we CAN detect the first hit (Health
--- drops > 20 in one replication update) and instantly snap the
--- character 10 studs downward — away from the kill zone — before
--- the second hit arrives (100ms RTT window at your ping).
--- Works for two-step kills. Instant one-shot kills can't be saved.
+-- ── Kill Zone Phase ──────────────────────────────────────────
+-- Kill zones use Part.Touched server-side. Character parts are
+-- CLIENT-network-owned, so setting CanCollide=false on the client
+-- replicates to the server instantly. With CanCollide=false the
+-- kill part's Touched event cannot fire — no collision surface.
+-- This exploits the debounce gap:
+--   1. First damage tick fires (already applied, can't block it)
+--   2. We detect Health drop ≥20, instantly phase all parts out
+--   3. During 0.45s window the kill zone can't re-touch us
+--   4. Restore CanCollide after window expires
+-- Same principle as Noclip but auto-triggered on damage only.
 
-local healthShieldActive = false
-local hs_lastHealth      = 100
-local hs_conn            = nil
-local hs_char_conn       = nil
+local kzPhaseActive = false
+local kzPhasing     = false
+local kz_lastHealth = 100
+local kz_conn       = nil
+local kz_char_conn  = nil
 
-local function AttachHealthShield(char)
-    if hs_char_conn then hs_char_conn:Disconnect(); hs_char_conn = nil end
-    local hum = char:WaitForChild("Humanoid", 5)
-    local hrp = char:WaitForChild("HumanoidRootPart", 5)
-    if not hum or not hrp then return end
-    hs_lastHealth = hum.Health
-    hs_char_conn = hum:GetPropertyChangedSignal("Health"):Connect(function()
-        if not healthShieldActive then return end
-        local newHP  = hum.Health
-        local drop   = hs_lastHealth - newHP
-        hs_lastHealth = newHP
-        -- If health drops sharply (kill zone hit) and we're not at 0 yet
-        if drop >= 20 and newHP > 0 then
-            -- Snap down 10 studs — exits the kill zone geometry
-            local cf = hrp.CFrame
-            hrp.CFrame = CFrame.new(
-                cf.Position.X,
-                cf.Position.Y - 10,
-                cf.Position.Z
-            ) * (cf - cf.Position)
+local function PhaseOut(char)
+    if kzPhasing then return end
+    kzPhasing = true
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then part.CanCollide = false end
+    end
+    task.delay(0.45, function()
+        kzPhasing = false
+        if not char or not char.Parent then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = true end
         end
     end)
 end
 
-local function StartHealthShield()
-    if LocalPlayer.Character then
-        AttachHealthShield(LocalPlayer.Character)
-    end
-    hs_conn = LocalPlayer.CharacterAdded:Connect(AttachHealthShield)
+local function AttachKZPhase(char)
+    if kz_char_conn then kz_char_conn:Disconnect(); kz_char_conn = nil end
+    local hum = char:WaitForChild("Humanoid", 5)
+    if not hum then return end
+    kz_lastHealth = hum.Health
+    kz_char_conn = hum:GetPropertyChangedSignal("Health"):Connect(function()
+        if not kzPhaseActive then return end
+        local newHP = hum.Health
+        local drop  = kz_lastHealth - newHP
+        kz_lastHealth = newHP
+        if drop >= 20 and newHP > 0 then PhaseOut(char) end
+    end)
 end
 
-local function StopHealthShield()
-    healthShieldActive = false
-    if hs_conn then hs_conn:Disconnect(); hs_conn = nil end
-    if hs_char_conn then hs_char_conn:Disconnect(); hs_char_conn = nil end
+local function StartKZPhase()
+    if LocalPlayer.Character then AttachKZPhase(LocalPlayer.Character) end
+    kz_conn = LocalPlayer.CharacterAdded:Connect(AttachKZPhase)
+end
+
+local function StopKZPhase()
+    kzPhaseActive = false
+    kzPhasing     = false
+    if kz_conn     then kz_conn:Disconnect();     kz_conn = nil     end
+    if kz_char_conn then kz_char_conn:Disconnect(); kz_char_conn = nil end
 end
 
 LocalPlayer.CharacterRemoving:Connect(function()
-    hs_lastHealth = 100
+    kz_lastHealth = 100; kzPhasing = false
 end)
 
-Section(Tab4, "  ◆ HEALTH SHIELD")
-FluentToggle(Tab4, "Health Shield", "Snap away from kill zones on first damage hit", function(v)
-    healthShieldActive = v
-    if v then StartHealthShield() else StopHealthShield() end
+Section(Tab4, "  ◆ KILL ZONE PHASE")
+FluentToggle(Tab4, "Kill Zone Phase",
+    "Damage hit → 0.45s phase-through — stops 2-hit kill zones", function(v)
+    kzPhaseActive = v
+    if v then StartKZPhase() else StopKZPhase() end
     return v
 end)
 
@@ -2080,9 +2096,9 @@ FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to re
 end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.3 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v7.4 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | HealthShield | PlatformSpawner")
+print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | KZPhase | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
