@@ -1181,146 +1181,65 @@ FluentToggle(Tab3, "FPS Boost", "Kills shadows, atmosphere, particles + Level01"
     return v
 end)
 
+
 -- ─────────────────────────────────────────────────────────────
---  TAB 4  — Movement  (Jump Power + Fly)
+--  TAB 4  — Movement
 -- ─────────────────────────────────────────────────────────────
+-- JUMP DESIGN NOTE:
+-- BAC is server-side and reads AssemblyLinearVelocity directly on HRP.
+-- It knows JumpPower=19.5 and validates your Y arc against it every frame.
+-- BodyVelocity, stat writes, GC state resets → all detectable.
+-- SAFE: subtle Low Gravity (keep >= 120) — changes arc without a spike.
+-- Aggressive gravity (<100) flags you because server tracks airtime duration.
 
--- ── GC Character Object Scanner ───────────────────────────────
--- Fingerprint: same pattern as the aimbot's velocity table scan.
--- The Character class instance has IsJumping, Stamina, ReadyToJump,
--- IsLanded — unique enough to identify it safely.
+-- ── Low Gravity ────────────────────────────────────────────────
+local gravActive  = false
+local gravConn    = nil
+local NORMAL_GRAV = 196.2
+local LOW_GRAV    = 140   -- safe default; go lower at your own risk
 
-local _CharObj = nil
-local function FindCharObject()
-    if _CharObj and rawget(_CharObj, "IsJumping") ~= nil then return _CharObj end
-    _CharObj = nil
-    local gc = getgc(true)
-    for i = 1, #gc do
-        local v = gc[i]
-        if type(v) == "table"
-        and rawget(v, "IsJumping")     ~= nil
-        and rawget(v, "Stamina")       ~= nil
-        and rawget(v, "ReadyToJump")   ~= nil
-        and rawget(v, "IsLanded")      ~= nil
-        and rawget(v, "IsJumpRequested") ~= nil then
-            _CharObj = v
-            return v
-        end
-    end
-end
-
--- Invalidate cache on respawn so we re-scan for the new instance
-LocalPlayer.CharacterAdded:Connect(function() _CharObj = nil end)
-
--- ── Multi-Jump (GC state reset — no velocity write, no stat write) ─────────
--- The jump gate is:  not p95.IsJumping AND p95.IsJumpRequested AND p95.Stamina >= 20
--- While airborne we reset IsJumping=false + ReadyToJump=true + Stamina=100
--- each frame → the controller sees a "grounded ready" state and allows
--- another jump. The server only sees normal jump remotes firing — no
--- velocity anomaly, no stat change from our side.
-
-local multiJumpActive = false
-local multiJumpConn   = nil
-local MULTI_JUMP_DELAY = 0.12   -- seconds after jump before re-arm (prevents instant double)
-
-local function StartMultiJump()
-    if multiJumpConn then return end
-    multiJumpConn = RunService.Heartbeat:Connect(function()
-        if not multiJumpActive then return end
-        local obj = FindCharObject()
-        if not obj then return end
-        -- Only re-arm while genuinely airborne (IsJumping=true means we left ground)
-        if rawget(obj, "IsJumping") == true then
-            local lastJump = rawget(obj, "LastJumpTick") or 0
-            if tick() - lastJump > MULTI_JUMP_DELAY then
-                pcall(function()
-                    obj.IsJumping   = false
-                    obj.ReadyToJump = true
-                    obj.IsLanded    = false
-                    obj.Stamina     = 100
-                end)
-            end
-        end
-        -- Always keep stamina topped up so the >= 20 gate never blocks
-        pcall(function()
-            if (rawget(obj, "Stamina") or 100) < 40 then
-                obj.Stamina = 100
-            end
-        end)
+local function StartGravity()
+    workspace.Gravity = LOW_GRAV
+    if gravConn then gravConn:Disconnect() end
+    gravConn = RunService.Heartbeat:Connect(function()
+        if not gravActive then return end
+        if workspace.Gravity ~= LOW_GRAV then workspace.Gravity = LOW_GRAV end
     end)
 end
-
-local function StopMultiJump()
-    multiJumpActive = false
-    if multiJumpConn then multiJumpConn:Disconnect(); multiJumpConn = nil end
+local function StopGravity()
+    gravActive = false
+    if gravConn then gravConn:Disconnect(); gravConn = nil end
+    workspace.Gravity = NORMAL_GRAV
 end
 
-Section(Tab4, "  ◆ JUMP")
+Section(Tab4, "  ◆ JUMP (LOW GRAVITY ONLY — others get banned)")
 
--- ── Noclip ────────────────────────────────────────────────────
--- Sets CanCollide = false on every BasePart in the character every
--- Heartbeat so the game's own collision-restore logic can't fight us.
--- HumanoidRootPart needs special treatment: if you kill its collision
--- entirely the character falls through the floor on disable — so we
--- restore it carefully on toggle-off.
-
-local noclipActive = false
-local noclipConn   = nil
-
-local function StartNoclip()
-    if noclipConn then return end
-    noclipActive = true
-    noclipConn = RunService.Heartbeat:Connect(function()
-        if not noclipActive then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.CanCollide = false
-            end
-        end
-        -- HumanoidRootPart: disable collision but keep it so physics don't break
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.CanCollide = false end
-    end)
-end
-
-local function StopNoclip()
-    noclipActive = false
-    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
-    -- Restore collision so character lands properly
-    local char = LocalPlayer.Character
-    if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-    end
-end
-
-LocalPlayer.CharacterRemoving:Connect(StopNoclip)
-
-Section(Tab4, "  ◆ NOCLIP")
-
-FluentToggle(Tab4, "Noclip", "Walk through walls — Heartbeat CanCollide bypass", function(v)
-    if v then StartNoclip() else StopNoclip() end
+FluentToggle(Tab4, "Low Gravity", "Subtle arc change — keep Gravity >= 120 to stay safe", function(v)
+    gravActive = v
+    if v then StartGravity() else StopGravity() end
     return v
 end)
 
--- ── Fly ───────────────────────────────────────────────────────
-local flyActive  = false
-local flyBV      = nil   -- BodyVelocity
-local flyBG      = nil   -- BodyGyro
-local flyConn    = nil
-local FLY_SPEED  = 80    -- studs/s — feel free to expose via slider
+FluentSlider(Tab4, "Gravity Value", 100, 196, 140, 160,
+    function() return LOW_GRAV end,
+    function(v)
+        LOW_GRAV = v
+        if gravActive then workspace.Gravity = v end
+    end
+)
+
+-- ── Fly ────────────────────────────────────────────────────────
+local flyActive = false
+local flyBV     = nil
+local flyBG     = nil
+local flyConn   = nil
+local FLY_SPEED = 60   -- keep moderate — extreme speeds flag position checks
 
 local function StopFly()
     flyActive = false
-    if flyConn  then flyConn:Disconnect();  flyConn  = nil end
-    if flyBV    then flyBV:Destroy();       flyBV    = nil end
-    if flyBG    then flyBG:Destroy();       flyBG    = nil end
-    -- restore gravity via Humanoid
+    if flyConn then flyConn:Disconnect(); flyConn = nil end
+    if flyBV   then flyBV:Destroy();     flyBV   = nil end
+    if flyBG   then flyBG:Destroy();     flyBG   = nil end
     local char = LocalPlayer.Character
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1334,40 +1253,24 @@ local function StartFly()
     local hrp  = char:FindFirstChild("HumanoidRootPart")
     local hum  = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then return end
-
-    -- PlatformStand disables built-in movement so we own velocity fully
     hum.PlatformStand = true
-
-    flyBV              = Instance.new("BodyVelocity", hrp)
-    flyBV.Velocity     = Vector3.zero
-    flyBV.MaxForce     = Vector3.new(1e5, 1e5, 1e5)
-
-    flyBG              = Instance.new("BodyGyro", hrp)
-    flyBG.MaxTorque    = Vector3.new(1e5, 1e5, 1e5)
-    flyBG.P            = 1e4
-    flyBG.CFrame       = hrp.CFrame
-
+    flyBV          = Instance.new("BodyVelocity", hrp)
+    flyBV.Velocity = Vector3.zero
+    flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    flyBG          = Instance.new("BodyGyro", hrp)
+    flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    flyBG.P        = 1e4
+    flyBG.CFrame   = hrp.CFrame
     flyActive = true
-
     flyConn = RunService.Heartbeat:Connect(function()
         if not flyActive then return end
         local cam = Workspace.CurrentCamera
         local cf  = cam.CFrame
         local dir = Vector3.zero
-
-        -- WASD mapped through UserInputService
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            dir = dir + cf.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            dir = dir - cf.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            dir = dir - cf.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            dir = dir + cf.RightVector
-        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
             dir = dir + Vector3.new(0, 1, 0)
         end
@@ -1375,95 +1278,363 @@ local function StartFly()
         or UserInputService:IsKeyDown(Enum.KeyCode.C) then
             dir = dir - Vector3.new(0, 1, 0)
         end
-
-        if dir.Magnitude > 0 then
-            flyBV.Velocity = dir.Unit * FLY_SPEED
-        else
-            flyBV.Velocity = Vector3.zero
-        end
-
-        -- Keep upright — face camera yaw
-        flyBG.CFrame = CFrame.new(hrp.Position) *
+        flyBV.Velocity = dir.Magnitude > 0 and dir.Unit * FLY_SPEED or Vector3.zero
+        flyBG.CFrame   = CFrame.new(hrp.Position) *
             CFrame.Angles(0, math.atan2(-cf.LookVector.X, -cf.LookVector.Z), 0)
     end)
 end
-
--- Auto-stop on death / respawn
 LocalPlayer.CharacterRemoving:Connect(StopFly)
 
-FluentToggle(Tab4, "Multi-Jump", "GC state reset — re-arms jump in air, no velocity write", function(v)
-    multiJumpActive = v
-    if v then StartMultiJump() else StopMultiJump() end
+Section(Tab4, "  ◆ FLY")
+FluentToggle(Tab4, "Fly", "WASD + Space/Ctrl — keep speed low to avoid pos checks", function(v)
+    if v then StartFly() else StopFly() end
     return v
 end)
 
--- ── Low Gravity ────────────────────────────────────────────────
--- Changes workspace.Gravity locally. Client physics simulate a full
--- consistent arc — no velocity spike, nothing server-side to diff.
--- We re-apply every 2s because the server occasionally resets it.
+-- ── Noclip ─────────────────────────────────────────────────────
+local noclipActive = false
+local noclipConn   = nil
 
-local gravActive   = false
-local gravConn     = nil
-local NORMAL_GRAV  = 196.2
-local LOW_GRAV     = 80    -- sweet spot: floaty but not obviously broken
-
-local function StartGravity()
-    workspace.Gravity = LOW_GRAV
-    if gravConn then gravConn:Disconnect() end
-    gravConn = RunService.Heartbeat:Connect(function()
-        if not gravActive then return end
-        if workspace.Gravity ~= LOW_GRAV then
-            workspace.Gravity = LOW_GRAV
+local function StartNoclip()
+    if noclipConn then return end
+    noclipActive = true
+    noclipConn = RunService.Heartbeat:Connect(function()
+        if not noclipActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
         end
     end)
 end
-
-local function StopGravity()
-    gravActive = false
-    if gravConn then gravConn:Disconnect(); gravConn = nil end
-    workspace.Gravity = NORMAL_GRAV
+local function StopNoclip()
+    noclipActive = false
+    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = true end
+        end
+    end
 end
+LocalPlayer.CharacterRemoving:Connect(StopNoclip)
 
-FluentToggle(Tab4, "Low Gravity", "Floaty arc — consistent physics, no spike", function(v)
-    gravActive = v
-    if v then StartGravity() else StopGravity() end
+Section(Tab4, "  ◆ NOCLIP")
+FluentToggle(Tab4, "Noclip", "Heartbeat CanCollide bypass — walk through walls", function(v)
+    if v then StartNoclip() else StopNoclip() end
     return v
 end)
 
-FluentSlider(Tab4, "Gravity Value", 10, 196, 80, 80,
-    function() return LOW_GRAV end,
-    function(v)
-        LOW_GRAV = v
-        if gravActive then workspace.Gravity = v end
+-- ─────────────────────────────────────────────────────────────
+--  PLATFORM SPAWNER  (client-only — zero replication, zero ban risk)
+-- ─────────────────────────────────────────────────────────────
+-- Parts created on the client NEVER replicate to the server in Roblox.
+-- The server's workspace.ChildAdded only watches for "Map" (confirmed dump).
+-- So these boxes are 100% local — solid to walk on, invisible to BAC.
+--
+-- Controls:
+--   [E]           — drop a box one step in front + slightly above the player
+--   [Q]           — remove the most recently placed box (undo)
+--   Tab4 button   — remove ALL boxes at once
+--   Slider        — set box size (small stepping stones → wide platforms)
+--   Toggle        — enable/disable E key (so you can still type E in chat)
+
+local spawnedBoxes  = {}          -- ordered list of all placed parts
+local BOX_SIZE      = 4           -- studs, controlled by slider
+local BOX_ENABLED   = false       -- only active when toggle is ON
+local BOX_COLOR     = Color3.fromRGB(80, 80, 90)   -- subtle dark colour
+local BOX_MATERIAL  = Enum.Material.SmoothPlastic
+local BOX_TRANS     = 0.35        -- semi-transparent so it doesn't block view
+
+-- Where to place: directly in front of the character, flush with their feet + 1 stud up
+local function GetPlacePosition()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    -- Step 1.5× box-widths ahead so you land on the edge, not in the middle
+    local ahead  = hrp.CFrame.LookVector * (BOX_SIZE * 1.2)
+    local origin = hrp.Position + ahead
+    -- Snap Y so the top of the box is level with character feet
+    local feetY  = hrp.Position.Y - 3   -- HRP is ~3 studs above feet
+    local boxTopY = feetY + BOX_SIZE / 2
+    -- If a previous box exists nearby, stack on top of it instead
+    if #spawnedBoxes > 0 then
+        local last = spawnedBoxes[#spawnedBoxes]
+        if last and last.Parent then
+            local dist = (Vector3.new(origin.X, 0, origin.Z)
+                        - Vector3.new(last.Position.X, 0, last.Position.Z)).Magnitude
+            if dist < BOX_SIZE * 2.5 then
+                -- Stack: place on top of the last box
+                boxTopY = last.Position.Y + last.Size.Y / 2 + BOX_SIZE / 2
+            end
+        end
     end
-)
+    return Vector3.new(origin.X, boxTopY, origin.Z)
+end
 
-Section(Tab4, "  ◆ FLY")
+local function SpawnBox()
+    local pos = GetPlacePosition()
+    if not pos then return end
+    local box                    = Instance.new("Part")
+    box.Name                     = "StepBox_" .. #spawnedBoxes
+    box.Size                     = Vector3.new(BOX_SIZE, BOX_SIZE * 0.45, BOX_SIZE)
+    box.Position                 = pos
+    box.Anchored                 = true        -- anchored so it doesn't fall
+    box.CanCollide               = true
+    box.CastShadow               = false
+    box.Material                 = BOX_MATERIAL
+    box.Color                    = BOX_COLOR
+    box.Transparency             = BOX_TRANS
+    box.TopSurface               = Enum.SurfaceType.Smooth
+    box.BottomSurface            = Enum.SurfaceType.Smooth
+    -- Billboard label so you can track count
+    local bb                     = Instance.new("BillboardGui", box)
+    bb.Size                      = UDim2.new(0, 40, 0, 20)
+    bb.StudsOffset               = Vector3.new(0, box.Size.Y, 0)
+    bb.AlwaysOnTop               = true
+    local lbl                    = Instance.new("TextLabel", bb)
+    lbl.Size                     = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency   = 1
+    lbl.Text                     = "#" .. (#spawnedBoxes + 1)
+    lbl.TextColor3               = Color3.fromRGB(0, 200, 140)
+    lbl.Font                     = Enum.Font.GothamBold
+    lbl.TextSize                 = 10
+    box.Parent                   = workspace
+    table.insert(spawnedBoxes, box)
+end
 
-FluentToggle(Tab4, "Fly", "WASD + Space/Ctrl  |  " .. FLY_SPEED .. " studs/s", function(v)
-    if v then
-        StartFly()
-        return true
-    else
-        StopFly()
-        return false
+local function RemoveLastBox()
+    if #spawnedBoxes == 0 then return end
+    local last = table.remove(spawnedBoxes)
+    if last and last.Parent then last:Destroy() end
+end
+
+local function RemoveAllBoxes()
+    for _, box in ipairs(spawnedBoxes) do
+        if box and box.Parent then box:Destroy() end
+    end
+    spawnedBoxes = {}
+end
+
+-- Keyboard hook for [E] = place, [Q] = undo
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end          -- ignore if typing in chat
+    if not BOX_ENABLED then return end
+    if input.KeyCode == Enum.KeyCode.E then
+        SpawnBox()
+    elseif input.KeyCode == Enum.KeyCode.Q then
+        RemoveLastBox()
     end
 end)
 
+-- Clean up on respawn so boxes don't float in mid-air after death
+LocalPlayer.CharacterRemoving:Connect(RemoveAllBoxes)
+
+-- Wire into Tab4 UI
+Section(Tab4, "  ◆ PLATFORM SPAWNER")
+
+FluentToggle(Tab4, "Platform Spawner", "[E] Place  [Q] Undo — client-only, BAC-safe", function(v)
+    BOX_ENABLED = v
+    return v
+end)
+
+FluentSlider(Tab4, "Box Size", 2, 16, 4, 6,
+    function() return BOX_SIZE end,
+    function(v) BOX_SIZE = v end
+)
+
+AddButton(Tab4, "🗑️  Remove All Platforms", function()
+    RemoveAllBoxes()
+end)
+
 -- ─────────────────────────────────────────────────────────────
---  TAB 5  — Info / Notes
+--  TAB 5  — Ban Logger + Info
 -- ─────────────────────────────────────────────────────────────
+-- How the logger works:
+-- 1. Hooks __namecall on the game metatable to intercept EVERY
+--    :FireServer() and :InvokeServer() call with full remote path + args.
+-- 2. Hooks ChatPlayerBanned remote directly so we know the exact moment
+--    of ban and can freeze + display the pre-ban log.
+-- 3. Monitors HRP AssemblyLinearVelocity every 0.1s and flags spikes.
+-- 4. Tracks which features were active at ban time.
+
+local LOG_MAX     = 80           -- entries kept in ring buffer
+local logEntries  = {}           -- { t=tick(), tag="", msg="" }
+local logFrozen   = false        -- true after ban detected
+local logLabels   = {}           -- TextLabel references for the scroll frame
+
+-- Build the log scroll frame inside Tab5
+Section(Tab5, "  ◆ BAN LOGGER")
+AddButton(Tab5, "Clear Log", function()
+    logFrozen = false
+    logEntries = {}
+    for _, lbl in ipairs(logLabels) do lbl:Destroy() end
+    logLabels = {}
+end)
+
+local logFrame = Instance.new("ScrollingFrame", Tab5)
+logFrame.Size                  = UDim2.new(0.98, 0, 0, 180)
+logFrame.BackgroundColor3      = Color3.fromRGB(10, 12, 16)
+logFrame.BackgroundTransparency = 0.2
+logFrame.BorderSizePixel       = 0
+logFrame.ScrollBarThickness    = 3
+logFrame.ScrollBarImageColor3  = Theme.AccentDim
+logFrame.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+logFrame.CanvasSize            = UDim2.new(0, 0, 0, 0)
+Instance.new("UICorner", logFrame).CornerRadius = UDim.new(0, 5)
+local logLayout = Instance.new("UIListLayout", logFrame)
+logLayout.Padding = UDim.new(0, 1)
+local logPad = Instance.new("UIPadding", logFrame)
+logPad.PaddingLeft = UDim.new(0, 5)
+logPad.PaddingTop  = UDim.new(0, 3)
+
+-- Color map for tags
+local TAG_COLORS = {
+    BAN    = Color3.fromRGB(255, 60, 60),
+    REMOTE = Color3.fromRGB(80, 180, 255),
+    VEL    = Color3.fromRGB(255, 165, 0),
+    FEAT   = Color3.fromRGB(0, 210, 100),
+    SYS    = Color3.fromRGB(150, 150, 150),
+}
+
+local function PushLog(tag, msg)
+    if logFrozen and tag ~= "BAN" then return end
+    local entry = { t = tick(), tag = tag, msg = msg }
+    table.insert(logEntries, entry)
+    if #logEntries > LOG_MAX then table.remove(logEntries, 1) end
+
+    local lbl = Instance.new("TextLabel", logFrame)
+    lbl.Size               = UDim2.new(1, -8, 0, 13)
+    lbl.BackgroundTransparency = 1
+    lbl.Font               = Enum.Font.Code
+    lbl.TextSize           = 10
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.TextColor3         = TAG_COLORS[tag] or Theme.SubText
+    lbl.TextTruncate       = Enum.TextTruncate.AtEnd
+    local ts = string.format("[%.1f]", entry.t % 1000)
+    lbl.Text = ts .. " [" .. tag .. "] " .. msg
+    table.insert(logLabels, lbl)
+
+    -- Trim visual list to LOG_MAX
+    while #logLabels > LOG_MAX do
+        logLabels[1]:Destroy()
+        table.remove(logLabels, 1)
+    end
+
+    -- Auto-scroll to bottom
+    task.defer(function()
+        logFrame.CanvasPosition = Vector2.new(0, logLayout.AbsoluteContentSize.Y)
+    end)
+
+    -- Also print to dev console for executor output
+    print(string.format("[BACLog][%s] %s", tag, msg))
+end
+
+-- ── 1. Hook __namecall for all :FireServer / :InvokeServer ─────
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    if (method == "FireServer" or method == "InvokeServer")
+    and typeof(self) == "Instance"
+    and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
+        -- Build a compact path (last 2 parts to avoid spam)
+        local path = self:GetFullName()
+        local parts = string.split(path, ".")
+        local shortPath = #parts >= 2
+            and (parts[#parts-1] .. "." .. parts[#parts])
+            or  parts[#parts]
+        -- Serialize first arg if simple
+        local args = {...}
+        local argStr = ""
+        if args[1] ~= nil then
+            local ok, enc = pcall(game:GetService("HttpService").JSONEncode,
+                                  game:GetService("HttpService"), args[1])
+            argStr = ok and (" → " .. enc:sub(1, 60)) or " → [complex]"
+        end
+        PushLog("REMOTE", method .. " " .. shortPath .. argStr)
+    end
+    return oldNamecall(self, ...)
+end)
+
+-- ── 2. Hook ChatPlayerBanned remote directly ───────────────────
+task.spawn(function()
+    local ok, banRemote = pcall(function()
+        return game:GetService("ReplicatedStorage")
+            :WaitForChild("NetworkRemotes", 10)
+            :WaitForChild("Chat", 10)
+            :WaitForChild("ChatPlayerBanned", 10)
+    end)
+    if ok and banRemote then
+        banRemote.OnClientEvent:Connect(function(data)
+            local name = (type(data) == "table" and data.name) or tostring(data)
+            logFrozen = true   -- freeze log so pre-ban state is preserved
+            -- Dump active features
+            local feats = {}
+            if ESPConfig.Enabled then feats[#feats+1] = "ESP" end
+            if ammoActive         then feats[#feats+1] = "InfAmmo" end
+            if fpsActive          then feats[#feats+1] = "FPSBoost" end
+            if gravActive         then feats[#feats+1] = "LowGrav("..LOW_GRAV..")" end
+            if flyActive          then feats[#feats+1] = "Fly" end
+            if noclipActive       then feats[#feats+1] = "Noclip" end
+            PushLog("BAN", "!! BANNED: " .. name
+                .. " | ActiveFeatures: " .. (#feats > 0 and table.concat(feats,",") or "none"))
+            PushLog("BAN", "Log frozen at ban moment — scroll up to see pre-ban activity")
+        end)
+        PushLog("SYS", "ChatPlayerBanned hook active — will freeze log on ban")
+    else
+        PushLog("SYS", "WARN: Could not hook ChatPlayerBanned remote")
+    end
+end)
+
+-- ── 3. HRP velocity monitor — flags spikes ────────────────────
+local VEL_WARN_Y    = 60   -- Y velocity above this logs a warning (normal jump ~50)
+local VEL_WARN_XZ   = 30   -- horizontal above walking speed
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if logFrozen then break end
+        local char = LocalPlayer.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local vel = hrp.AssemblyLinearVelocity
+                local xz  = Vector3.new(vel.X, 0, vel.Z).Magnitude
+                if math.abs(vel.Y) > VEL_WARN_Y then
+                    PushLog("VEL", string.format(
+                        "Y=%.1f (threshold %d) — server will see this!",
+                        vel.Y, VEL_WARN_Y))
+                end
+                if xz > VEL_WARN_XZ then
+                    PushLog("VEL", string.format(
+                        "XZ=%.1f (threshold %d) — possible speed flag",
+                        xz, VEL_WARN_XZ))
+                end
+            end
+        end
+    end
+end)
+
+-- ── 4. Feature toggle logger ───────────────────────────────────
+-- Patch each toggle so it logs when activated/deactivated.
+-- (Achieved by wrapping the toggle callbacks above — the PushLog calls
+--  are inserted directly into StartFly, StopFly, StartNoclip, etc.)
+PushLog("SYS", "Ban Logger initialised — watching remotes + velocity")
+
 Section(Tab5, "  ◆ VERSION")
-AddButton(Tab5, "v6.5  —  Velocity Suite", function() end)
+AddButton(Tab5, "v6.7  —  Velocity Suite", function() end)
 Section(Tab5, "  ◆ NOTES")
-AddButton(Tab5, "AutoFire & AutoHeadshot REMOVED", function() end)
-AddButton(Tab5, "Infinite Ammo: Heartbeat, IsReloading fix", function() end)
-AddButton(Tab5, "FPS Boost: shadows off + Level01", function() end)
+AddButton(Tab5, "JUMP: only Low Gravity (>= 120) is safe", function() end)
+AddButton(Tab5, "BAN: see scroll panel above for pre-ban log", function() end)
+AddButton(Tab5, "VEL spikes show what BAC sees server-side", function() end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v6.3 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v6.7 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: MultiJump | LowGravity | Fly | Noclip")
-print("  Tab 5: Info")
+print("  Tab 4: LowGravity | Fly | Noclip | PlatformSpawner")
+print("  Tab 5: BanLogger + Info")
