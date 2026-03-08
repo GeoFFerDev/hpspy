@@ -1624,72 +1624,120 @@ btnUndo.MouseButton1Click:Connect(function()
 end)
 
 
+-- ── Zone Dodge ────────────────────────────────────────────────
+-- WHAT WAS WRONG WITH ZoneDodge:
+-- Kill zones on Bloxstrike use ZonePlus — a POSITIONAL detection
+-- library that checks if HumanoidRootPart.CENTRE is inside a volume
+-- using workspace:GetPartsInPart() every Heartbeat, server-side.
+-- CanCollide=false has ZERO effect on this. It fires regardless.
+--
+-- HOW ZONE DODGE WORKS:
+-- Zone kills are map-specific — Mirage puts kill volumes at a lower
+-- Y than Dust2. The zone triggers when HRP.Position.Y enters the
+-- volume. Our defence: watch Humanoid.Health for any sudden drop
+-- (zone deal lethal damage in 1-2 ticks). On the very first drop
+-- we immediately spawn a thick escape platform 8 studs ABOVE the
+-- character so they can jump up and out of the zone volume before
+-- the next server poll (~16ms). Since ZonePlus Centre detection
+-- checks HRP.Position, gaining ~8 studs of height exits most
+-- kill volumes (they're typically 4-6 studs tall).
+-- Simultaneously we spawn a box BELOW as a floor to land on
+-- if the upward escape fails.
+--
+-- This works because:
+--   1. First zone damage tick fires  (can't prevent it)
+--   2. Client gets Health property update within ~1 frame
+--   3. We spawn escape boxes instantly (client-side, zero lag)
+--   4. Player jumps up onto the escape box → exits zone volume
+--   5. Server's next ZonePlus poll (~16ms) sees HRP outside zone
+--   6. No more damage
 
+local zdActive      = false
+local zd_lastHealth = 100
+local zd_char_conn  = nil
+local zd_debounce   = false   -- prevent spawning multiple times per hit
 
--- ── Kill Zone Phase ──────────────────────────────────────────
--- Kill zones use Part.Touched server-side. Character parts are
--- CLIENT-network-owned, so setting CanCollide=false on the client
--- replicates to the server instantly. With CanCollide=false the
--- kill part's Touched event cannot fire — no collision surface.
--- This exploits the debounce gap:
---   1. First damage tick fires (already applied, can't block it)
---   2. We detect Health drop ≥20, instantly phase all parts out
---   3. During 0.45s window the kill zone can't re-touch us
---   4. Restore CanCollide after window expires
--- Same principle as Noclip but auto-triggered on damage only.
+local function SpawnEscapePlatform(hrp)
+    if zd_debounce then return end
+    zd_debounce = true
 
-local kzPhaseActive = false
-local kzPhasing     = false
-local kz_lastHealth = 100
-local kz_conn       = nil
-local kz_char_conn  = nil
+    local px, py, pz = hrp.Position.X, hrp.Position.Y, hrp.Position.Z
 
-local function PhaseOut(char)
-    if kzPhasing then return end
-    kzPhasing = true
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then part.CanCollide = false end
-    end
-    task.delay(0.45, function()
-        kzPhasing = false
-        if not char or not char.Parent then return end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = true end
+    -- Platform 8 studs ABOVE — step up onto it to exit zone volume
+    local top = Instance.new("Part")
+    top.Size          = Vector3.new(10, 0.8, 10)
+    top.CFrame        = CFrame.new(px, py + 8, pz)
+    top.Anchored      = true
+    top.CanCollide    = true
+    top.CastShadow    = false
+    top.Material      = Enum.Material.SmoothPlastic
+    top.Color         = Color3.fromRGB(255, 80, 80)
+    top.Transparency  = 0.3
+    top.TopSurface    = Enum.SurfaceType.Smooth
+    top.BottomSurface = Enum.SurfaceType.Smooth
+    top.Parent        = workspace
+
+    -- Floor 2 studs BELOW — safety net if jump isn't fast enough
+    local floor = Instance.new("Part")
+    floor.Size         = Vector3.new(10, 0.8, 10)
+    floor.CFrame       = CFrame.new(px, py - 2, pz)
+    floor.Anchored     = true
+    floor.CanCollide   = true
+    floor.CastShadow   = false
+    floor.Material     = Enum.Material.SmoothPlastic
+    floor.Color        = Color3.fromRGB(255, 140, 30)
+    floor.Transparency = 0.3
+    floor.TopSurface   = Enum.SurfaceType.Smooth
+    floor.BottomSurface = Enum.SurfaceType.Smooth
+    floor.Parent       = workspace
+
+    -- Clean up after 6 seconds
+    task.delay(6, function()
+        if top   and top.Parent   then top:Destroy()   end
+        if floor and floor.Parent then floor:Destroy() end
+    end)
+    -- Reset debounce after 1.5s
+    task.delay(1.5, function() zd_debounce = false end)
+end
+
+local function AttachZoneDodge(char)
+    if zd_char_conn then zd_char_conn:Disconnect(); zd_char_conn = nil end
+    local hum = char:WaitForChild("Humanoid", 5)
+    local hrp = char:WaitForChild("HumanoidRootPart", 5)
+    if not hum or not hrp then return end
+    zd_lastHealth = hum.Health
+    zd_char_conn = hum:GetPropertyChangedSignal("Health"):Connect(function()
+        if not zdActive then return end
+        local newHP = hum.Health
+        local drop  = zd_lastHealth - newHP
+        zd_lastHealth = newHP
+        -- Any damage while enabled triggers escape — even 1hp drop
+        if drop > 0 and newHP > 0 then
+            SpawnEscapePlatform(hrp)
         end
     end)
 end
 
-local function AttachKZPhase(char)
-    if kz_char_conn then kz_char_conn:Disconnect(); kz_char_conn = nil end
-    local hum = char:WaitForChild("Humanoid", 5)
-    if not hum then return end
-    kz_lastHealth = hum.Health
-    kz_char_conn = hum:GetPropertyChangedSignal("Health"):Connect(function()
-        if not kzPhaseActive then return end
-        local newHP = hum.Health
-        local drop  = kz_lastHealth - newHP
-        kz_lastHealth = newHP
-        if drop >= 20 and newHP > 0 then PhaseOut(char) end
-    end)
+local function StartZoneDodge()
+    zd_debounce = false
+    if LocalPlayer.Character then AttachZoneDodge(LocalPlayer.Character) end
 end
 
-local function StartKZPhase()
-    if LocalPlayer.Character then AttachKZPhase(LocalPlayer.Character) end
-    -- CharacterAdded handled centrally below
+local function StopZoneDodge(keepFlag)
+    if not keepFlag then zdActive = false end
+    zd_debounce = false
+    if zd_char_conn then zd_char_conn:Disconnect(); zd_char_conn = nil end
 end
 
-local function StopKZPhase(keepFlag)
-    if not keepFlag then kzPhaseActive = false end
-    kzPhasing = false
-    if kz_conn      then kz_conn:Disconnect();      kz_conn = nil      end
-    if kz_char_conn then kz_char_conn:Disconnect(); kz_char_conn = nil end
-end
+LocalPlayer.CharacterRemoving:Connect(function()
+    zd_lastHealth = 100; zd_debounce = false
+end)
 
-Section(Tab4, "  ◆ KILL ZONE PHASE")
-FluentToggle(Tab4, "Kill Zone Phase",
-    "Damage hit → 0.45s phase-through — stops 2-hit kill zones", function(v)
-    kzPhaseActive = v
-    if v then StartKZPhase() else StopKZPhase() end
+Section(Tab4, "  ◆ ZONE DODGE")
+FluentToggle(Tab4, "Zone Dodge",
+    "On any damage: escape platforms spawn above + below you", function(v)
+    zdActive = v
+    if v then StartZoneDodge() else StopZoneDodge() end
     return v
 end)
 
@@ -1707,13 +1755,11 @@ LocalPlayer.CharacterRemoving:Connect(function()
     StopNoclip(true)
     StopJumpBox(true)
     StopFallCushion(true)
-    StopKZPhase(true)
+    StopZoneDodge(true)
     -- Clean up physical objects that shouldn't survive death
     CleanJumpBoxes()
     RemoveAllBoxes()
     -- Reset per-life state
-    kz_lastHealth = 100
-    kzPhasing     = false
     fc_lastY      = math.huge
     jbox_wasUp    = false
     -- Low gravity restores on death naturally (workspace.Gravity resets server-side)
@@ -1730,7 +1776,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if noclipActive    then StartNoclip()                       end
     if jumpBoxActive   then StartJumpBox()                      end
     if fallCushionActive then StartFallCushion()                end
-    if kzPhaseActive   then AttachKZPhase(char)                 end
+    if zdActive         then AttachZoneDodge(char)               end
     if BOX_ENABLED     then
         -- Respawn HUD is still enabled, just update count label
         placeCount.Text = "0 boxes"
@@ -2132,9 +2178,9 @@ FluentToggle(Tab1, "Tactical Radar", "Enemy blips overhead  —  tap radar to re
 end)
 
 -- ── Done ─────────────────────────────────────────────────────
-print("[Bloxstrike] v7.5 Loaded — UI: Fluent Template")
+print("[Bloxstrike] v7.6 Loaded — UI: Fluent Template")
 print("  Tab 1: ESP | MaxVelocity | ZeroSpread | Radar")
 print("  Tab 2: InfiniteAmmo (Heartbeat, IsReloading fix)")
 print("  Tab 3: FPS Boost")
-print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | KZPhase | PlatformSpawner")
+print("  Tab 4: LowGravity | Noclip | JumpBox | FallCushion | ZoneDodge | PlatformSpawner")
 print("  Tab 5: BanLogger + Info")
