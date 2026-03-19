@@ -1,3 +1,186 @@
+-- hpspy v8.0 | BloxStrike
+-- Key system — powered by LootLabs
+
+local _BACKEND  = "https://script.google.com/macros/s/AKfycbxmBrfhbG9WHTzKDr1U0MGzbrKgkTrr5a29ZCfMun7-skeFj9jrxIMLOO1l8bpo0gkE/exec"
+local _LOOTLINK = "https://loot-link.com/s?dWlydiWs"
+
+local Players     = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local CoreGui     = game:GetService("CoreGui")
+local player      = Players.LocalPlayer
+
+local guiTarget = (type(gethui)=="function" and gethui()) or CoreGui
+if guiTarget:FindFirstChild("hpspy_KeyGUI") then
+    guiTarget.hpspy_KeyGUI:Destroy()
+end
+
+local function _verify(input)
+    local uid = tostring(player.UserId)
+    local url = _BACKEND.."?action=verify&key="..HttpService:UrlEncode(input).."&ip="..uid
+    local ok, res = pcall(function() return game:HttpGet(url, true) end)
+    if not ok then return false, "network_error" end
+    local ok2, data = pcall(function() return HttpService:JSONDecode(res) end)
+    if not ok2 then return false, "parse_error" end
+    return data.success == true, data.msg or "invalid"
+end
+
+-- Block execution until key is verified
+local _keyVerified = false
+local _co = coroutine.running()
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "hpspy_KeyGUI"
+sg.ResetOnSpawn = false
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.Parent = guiTarget
+
+local overlay = Instance.new("Frame", sg)
+overlay.Size = UDim2.fromScale(1,1)
+overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+overlay.BackgroundTransparency = 0.45
+overlay.BorderSizePixel = 0
+
+local card = Instance.new("Frame", overlay)
+card.Size = UDim2.new(0,360,0,230)
+card.Position = UDim2.new(0.5,-180,0.5,-115)
+card.BackgroundColor3 = Color3.fromRGB(15,15,20)
+card.BorderSizePixel = 0
+Instance.new("UICorner", card).CornerRadius = UDim.new(0,14)
+
+local accent = Instance.new("Frame", card)
+accent.Size = UDim2.new(1,0,0,3)
+accent.BackgroundColor3 = Color3.fromRGB(0,210,90)
+accent.BorderSizePixel = 0
+Instance.new("UICorner", accent).CornerRadius = UDim.new(0,14)
+
+local title = Instance.new("TextLabel", card)
+title.Text = "hpspy  ·  v8.0"
+title.Size = UDim2.new(1,0,0,40)
+title.Position = UDim2.new(0,0,0,10)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.TextSize = 17
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Center
+
+local sub = Instance.new("TextLabel", card)
+sub.Text = "Complete the tasks to get your free key"
+sub.Size = UDim2.new(1,-20,0,18)
+sub.Position = UDim2.new(0,10,0,50)
+sub.BackgroundTransparency = 1
+sub.TextColor3 = Color3.fromRGB(120,120,140)
+sub.TextSize = 12
+sub.Font = Enum.Font.Gotham
+sub.TextXAlignment = Enum.TextXAlignment.Center
+
+local keyBox = Instance.new("TextBox", card)
+keyBox.PlaceholderText = "Paste your key here..."
+keyBox.Text = ""
+keyBox.Size = UDim2.new(1,-24,0,40)
+keyBox.Position = UDim2.new(0,12,0,80)
+keyBox.BackgroundColor3 = Color3.fromRGB(25,25,35)
+keyBox.TextColor3 = Color3.fromRGB(255,255,255)
+keyBox.PlaceholderColor3 = Color3.fromRGB(70,70,90)
+keyBox.TextSize = 13
+keyBox.Font = Enum.Font.Gotham
+keyBox.BorderSizePixel = 0
+keyBox.ClearTextOnFocus = false
+Instance.new("UICorner", keyBox).CornerRadius = UDim.new(0,8)
+local kpad = Instance.new("UIPadding", keyBox)
+kpad.PaddingLeft = UDim.new(0,10)
+
+local getBtn = Instance.new("TextButton", card)
+getBtn.Text = "📋  Get Key"
+getBtn.Size = UDim2.new(0.47,0,0,38)
+getBtn.Position = UDim2.new(0,12,0,134)
+getBtn.BackgroundColor3 = Color3.fromRGB(255,175,0)
+getBtn.TextColor3 = Color3.fromRGB(15,15,15)
+getBtn.TextSize = 13
+getBtn.Font = Enum.Font.GothamBold
+getBtn.BorderSizePixel = 0
+Instance.new("UICorner", getBtn).CornerRadius = UDim.new(0,8)
+
+local submitBtn = Instance.new("TextButton", card)
+submitBtn.Text = "✅  Submit Key"
+submitBtn.Size = UDim2.new(0.47,0,0,38)
+submitBtn.Position = UDim2.new(0.53,-12,0,134)
+submitBtn.BackgroundColor3 = Color3.fromRGB(0,195,85)
+submitBtn.TextColor3 = Color3.fromRGB(255,255,255)
+submitBtn.TextSize = 13
+submitBtn.Font = Enum.Font.GothamBold
+submitBtn.BorderSizePixel = 0
+Instance.new("UICorner", submitBtn).CornerRadius = UDim.new(0,8)
+
+local statusLbl = Instance.new("TextLabel", card)
+statusLbl.Text = "Powered by LootLabs  ·  Keys expire every 24h"
+statusLbl.Size = UDim2.new(1,0,0,24)
+statusLbl.Position = UDim2.new(0,0,0,186)
+statusLbl.BackgroundTransparency = 1
+statusLbl.TextColor3 = Color3.fromRGB(70,70,90)
+statusLbl.TextSize = 11
+statusLbl.Font = Enum.Font.Gotham
+statusLbl.TextXAlignment = Enum.TextXAlignment.Center
+
+local credit = Instance.new("TextLabel", card)
+credit.Text = "BloxStrike  ·  hpspy by joffjoff0473"
+credit.Size = UDim2.new(1,0,0,18)
+credit.Position = UDim2.new(0,0,0,210)
+credit.BackgroundTransparency = 1
+credit.TextColor3 = Color3.fromRGB(50,50,65)
+credit.TextSize = 10
+credit.Font = Enum.Font.Gotham
+credit.TextXAlignment = Enum.TextXAlignment.Center
+
+getBtn.MouseButton1Click:Connect(function()
+    setclipboard(_LOOTLINK)
+    statusLbl.Text = "✅ Link copied! Paste in your browser"
+    statusLbl.TextColor3 = Color3.fromRGB(0,210,90)
+end)
+
+submitBtn.MouseButton1Click:Connect(function()
+    local inp = keyBox.Text:gsub("%s+","")
+    if inp == "" then
+        statusLbl.Text = "❌ Please enter your key first"
+        statusLbl.TextColor3 = Color3.fromRGB(255,75,75)
+        return
+    end
+    submitBtn.Text = "⏳ Verifying..."
+    submitBtn.BackgroundColor3 = Color3.fromRGB(60,60,80)
+    statusLbl.Text = "Checking key against server..."
+    statusLbl.TextColor3 = Color3.fromRGB(150,150,170)
+    task.spawn(function()
+        local ok, msg = _verify(inp)
+        if ok then
+            statusLbl.Text = "✅ Key valid! Loading hpspy v8.0..."
+            statusLbl.TextColor3 = Color3.fromRGB(0,210,90)
+            submitBtn.Text = "✅ Accepted"
+            task.wait(1.2)
+            sg:Destroy()
+            _keyVerified = true
+        else
+            submitBtn.Text = "✅  Submit Key"
+            submitBtn.BackgroundColor3 = Color3.fromRGB(0,195,85)
+            if msg == "expired" then
+                statusLbl.Text = "❌ Key expired — get a new one via the link"
+                statusLbl.TextColor3 = Color3.fromRGB(255,140,0)
+            elseif msg == "network_error" then
+                statusLbl.Text = "❌ Network error — check your executor"
+                statusLbl.TextColor3 = Color3.fromRGB(255,75,75)
+            else
+                statusLbl.Text = "❌ Invalid key — complete the tasks again"
+                statusLbl.TextColor3 = Color3.fromRGB(255,75,75)
+            end
+        end
+    end)
+end)
+
+-- Wait until key is verified before continuing
+repeat task.wait(0.1) until _keyVerified
+sg:Destroy()
+
+-- ═══════════════════════════════════════════════
+--  MAIN SCRIPT BELOW (runs only after valid key)
+-- ═══════════════════════════════════════════════
 --[[
   ══════════════════════════════════════════════════════════════
   FLUENT UI TEMPLATE  —  Extracted from JOSEPEDOV V51
