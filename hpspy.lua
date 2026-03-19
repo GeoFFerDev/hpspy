@@ -1,32 +1,35 @@
 -- hpspy v8.0 | BloxStrike
--- Key system — powered by LootLabs
+-- Per-user daily key — resets UTC midnight — no HTTP calls
 
-local _BACKEND  = "https://script.google.com/macros/s/AKfycbxmBrfhbG9WHTzKDr1U0MGzbrKgkTrr5a29ZCfMun7-skeFj9jrxIMLOO1l8bpo0gkE/exec"
 local _LOOTLINK = "https://loot-link.com/s?dWlydiWs"
 
-local Players     = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local CoreGui     = game:GetService("CoreGui")
-local player      = Players.LocalPlayer
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local player  = Players.LocalPlayer
+
+local function _getDailySeed()
+    local d = os.date("!*t")
+    return d.year * 10000 + d.month * 100 + d.day
+end
+
+local function _deriveKey(uid, seed)
+    local n  = tonumber(uid) or 0
+    local s  = seed
+    local SA = 3383210961
+    local SB = 1328450565
+    local SC = 1907794834
+    local a = (n * SA + s * 1013904223 + 1013904223) % 4294967296
+    local b = (n * SB + s * SC) % 4294967296
+    local c = (a ~ b ~ (n % 65535) ~ s) % 4294967296
+    return string.format("hpspy-%08x-%08x", a, c)
+end
+
+local _seed       = _getDailySeed()
+local _expected   = _deriveKey(player.UserId, _seed)
+local _verified   = false
 
 local guiTarget = (type(gethui)=="function" and gethui()) or CoreGui
-if guiTarget:FindFirstChild("hpspy_KeyGUI") then
-    guiTarget.hpspy_KeyGUI:Destroy()
-end
-
-local function _verify(input)
-    local uid = tostring(player.UserId)
-    local url = _BACKEND.."?action=verify&key="..HttpService:UrlEncode(input).."&ip="..uid
-    local ok, res = pcall(function() return game:HttpGet(url, true) end)
-    if not ok then return false, "network_error" end
-    local ok2, data = pcall(function() return HttpService:JSONDecode(res) end)
-    if not ok2 then return false, "parse_error" end
-    return data.success == true, data.msg or "invalid"
-end
-
--- Block execution until key is verified
-local _keyVerified = false
-local _co = coroutine.running()
+if guiTarget:FindFirstChild("hpspy_KeyGUI") then guiTarget.hpspy_KeyGUI:Destroy() end
 
 local sg = Instance.new("ScreenGui")
 sg.Name = "hpspy_KeyGUI"
@@ -34,152 +37,113 @@ sg.ResetOnSpawn = false
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = guiTarget
 
-local overlay = Instance.new("Frame", sg)
-overlay.Size = UDim2.fromScale(1,1)
-overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
-overlay.BackgroundTransparency = 0.45
-overlay.BorderSizePixel = 0
+local ov = Instance.new("Frame", sg)
+ov.Size = UDim2.fromScale(1,1)
+ov.BackgroundColor3 = Color3.fromRGB(0,0,0)
+ov.BackgroundTransparency = 0.45
+ov.BorderSizePixel = 0
 
-local card = Instance.new("Frame", overlay)
-card.Size = UDim2.new(0,360,0,230)
-card.Position = UDim2.new(0.5,-180,0.5,-115)
+local card = Instance.new("Frame", ov)
+card.Size = UDim2.new(0,360,0,238)
+card.Position = UDim2.new(0.5,-180,0.5,-119)
 card.BackgroundColor3 = Color3.fromRGB(15,15,20)
 card.BorderSizePixel = 0
 Instance.new("UICorner", card).CornerRadius = UDim.new(0,14)
 
-local accent = Instance.new("Frame", card)
-accent.Size = UDim2.new(1,0,0,3)
-accent.BackgroundColor3 = Color3.fromRGB(0,210,90)
-accent.BorderSizePixel = 0
-Instance.new("UICorner", accent).CornerRadius = UDim.new(0,14)
+local ac = Instance.new("Frame", card)
+ac.Size = UDim2.new(1,0,0,3)
+ac.BackgroundColor3 = Color3.fromRGB(0,210,90)
+ac.BorderSizePixel = 0
+Instance.new("UICorner", ac).CornerRadius = UDim.new(0,14)
 
-local title = Instance.new("TextLabel", card)
-title.Text = "hpspy  ·  v8.0"
-title.Size = UDim2.new(1,0,0,40)
-title.Position = UDim2.new(0,0,0,10)
-title.BackgroundTransparency = 1
-title.TextColor3 = Color3.fromRGB(255,255,255)
-title.TextSize = 17
-title.Font = Enum.Font.GothamBold
-title.TextXAlignment = Enum.TextXAlignment.Center
+local function mkLabel(parent, text, size, pos, textSize, font, color, align)
+    local l = Instance.new("TextLabel", parent)
+    l.Text = text; l.Size = size; l.Position = pos
+    l.BackgroundTransparency = 1
+    l.TextColor3 = color or Color3.fromRGB(255,255,255)
+    l.TextSize = textSize or 13
+    l.Font = font or Enum.Font.Gotham
+    l.TextXAlignment = align or Enum.TextXAlignment.Center
+    return l
+end
 
-local sub = Instance.new("TextLabel", card)
-sub.Text = "Complete the tasks to get your free key"
-sub.Size = UDim2.new(1,-20,0,18)
-sub.Position = UDim2.new(0,10,0,50)
-sub.BackgroundTransparency = 1
-sub.TextColor3 = Color3.fromRGB(120,120,140)
-sub.TextSize = 12
-sub.Font = Enum.Font.Gotham
-sub.TextXAlignment = Enum.TextXAlignment.Center
+mkLabel(card, "hpspy  ·  v8.0",
+    UDim2.new(1,0,0,40), UDim2.new(0,0,0,10), 17, Enum.Font.GothamBold)
+
+mkLabel(card, "Get your key via the link — resets daily at UTC midnight",
+    UDim2.new(1,-20,0,18), UDim2.new(0,10,0,50), 11,
+    Enum.Font.Gotham, Color3.fromRGB(120,120,140))
+
+-- Time remaining label
+local d = os.date("!*t")
+local sLeft = (23-d.hour)*3600 + (59-d.min)*60 + (60-d.sec)
+local timerLbl = mkLabel(card,
+    string.format("Key resets in: %dh %dm", math.floor(sLeft/3600), math.floor((sLeft%3600)/60)),
+    UDim2.new(1,0,0,16), UDim2.new(0,0,0,68), 10,
+    Enum.Font.Gotham, Color3.fromRGB(80,80,100))
 
 local keyBox = Instance.new("TextBox", card)
 keyBox.PlaceholderText = "Paste your key here..."
 keyBox.Text = ""
 keyBox.Size = UDim2.new(1,-24,0,40)
-keyBox.Position = UDim2.new(0,12,0,80)
+keyBox.Position = UDim2.new(0,12,0,90)
 keyBox.BackgroundColor3 = Color3.fromRGB(25,25,35)
 keyBox.TextColor3 = Color3.fromRGB(255,255,255)
 keyBox.PlaceholderColor3 = Color3.fromRGB(70,70,90)
-keyBox.TextSize = 13
-keyBox.Font = Enum.Font.Gotham
-keyBox.BorderSizePixel = 0
-keyBox.ClearTextOnFocus = false
+keyBox.TextSize = 13; keyBox.Font = Enum.Font.Gotham
+keyBox.BorderSizePixel = 0; keyBox.ClearTextOnFocus = false
 Instance.new("UICorner", keyBox).CornerRadius = UDim.new(0,8)
-local kpad = Instance.new("UIPadding", keyBox)
-kpad.PaddingLeft = UDim.new(0,10)
+Instance.new("UIPadding", keyBox).PaddingLeft = UDim.new(0,10)
 
-local getBtn = Instance.new("TextButton", card)
-getBtn.Text = "📋  Get Key"
-getBtn.Size = UDim2.new(0.47,0,0,38)
-getBtn.Position = UDim2.new(0,12,0,134)
-getBtn.BackgroundColor3 = Color3.fromRGB(255,175,0)
-getBtn.TextColor3 = Color3.fromRGB(15,15,15)
-getBtn.TextSize = 13
-getBtn.Font = Enum.Font.GothamBold
-getBtn.BorderSizePixel = 0
-Instance.new("UICorner", getBtn).CornerRadius = UDim.new(0,8)
+local function mkBtn(parent, text, xpos, bg, fg)
+    local b = Instance.new("TextButton", parent)
+    b.Text = text; b.Size = UDim2.new(0.47,0,0,38)
+    b.Position = UDim2.new(xpos,-12*(xpos>0 and 1 or 0),0,144)
+    b.BackgroundColor3 = bg; b.TextColor3 = fg
+    b.TextSize = 13; b.Font = Enum.Font.GothamBold; b.BorderSizePixel = 0
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
+    return b
+end
 
-local submitBtn = Instance.new("TextButton", card)
-submitBtn.Text = "✅  Submit Key"
-submitBtn.Size = UDim2.new(0.47,0,0,38)
-submitBtn.Position = UDim2.new(0.53,-12,0,134)
-submitBtn.BackgroundColor3 = Color3.fromRGB(0,195,85)
-submitBtn.TextColor3 = Color3.fromRGB(255,255,255)
-submitBtn.TextSize = 13
-submitBtn.Font = Enum.Font.GothamBold
-submitBtn.BorderSizePixel = 0
-Instance.new("UICorner", submitBtn).CornerRadius = UDim.new(0,8)
+local getBtn    = mkBtn(card, "Get Key",    0,   Color3.fromRGB(255,175,0), Color3.fromRGB(15,15,15))
+local submitBtn = mkBtn(card, "Submit Key", 0.53, Color3.fromRGB(0,195,85), Color3.fromRGB(255,255,255))
 
-local statusLbl = Instance.new("TextLabel", card)
-statusLbl.Text = "Powered by LootLabs  ·  Keys expire every 24h"
-statusLbl.Size = UDim2.new(1,0,0,24)
-statusLbl.Position = UDim2.new(0,0,0,186)
-statusLbl.BackgroundTransparency = 1
-statusLbl.TextColor3 = Color3.fromRGB(70,70,90)
-statusLbl.TextSize = 11
-statusLbl.Font = Enum.Font.Gotham
-statusLbl.TextXAlignment = Enum.TextXAlignment.Center
+local statusLbl = mkLabel(card, "Key is unique to YOUR account — cannot be shared",
+    UDim2.new(1,0,0,20), UDim2.new(0,0,0,196), 11,
+    Enum.Font.Gotham, Color3.fromRGB(70,70,90))
 
-local credit = Instance.new("TextLabel", card)
-credit.Text = "BloxStrike  ·  hpspy by joffjoff0473"
-credit.Size = UDim2.new(1,0,0,18)
-credit.Position = UDim2.new(0,0,0,210)
-credit.BackgroundTransparency = 1
-credit.TextColor3 = Color3.fromRGB(50,50,65)
-credit.TextSize = 10
-credit.Font = Enum.Font.Gotham
-credit.TextXAlignment = Enum.TextXAlignment.Center
+mkLabel(card, "BloxStrike  ·  hpspy by joffjoff0473",
+    UDim2.new(1,0,0,16), UDim2.new(0,0,0,218), 10,
+    Enum.Font.Gotham, Color3.fromRGB(40,40,55))
 
 getBtn.MouseButton1Click:Connect(function()
     setclipboard(_LOOTLINK)
-    statusLbl.Text = "✅ Link copied! Paste in your browser"
+    statusLbl.Text = "Copied! Complete tasks then enter YOUR User ID"
     statusLbl.TextColor3 = Color3.fromRGB(0,210,90)
 end)
 
 submitBtn.MouseButton1Click:Connect(function()
     local inp = keyBox.Text:gsub("%s+","")
     if inp == "" then
-        statusLbl.Text = "❌ Please enter your key first"
+        statusLbl.Text = "Enter your key first"
         statusLbl.TextColor3 = Color3.fromRGB(255,75,75)
         return
     end
-    submitBtn.Text = "⏳ Verifying..."
-    submitBtn.BackgroundColor3 = Color3.fromRGB(60,60,80)
-    statusLbl.Text = "Checking key against server..."
-    statusLbl.TextColor3 = Color3.fromRGB(150,150,170)
-    task.spawn(function()
-        local ok, msg = _verify(inp)
-        if ok then
-            statusLbl.Text = "✅ Key valid! Loading hpspy v8.0..."
-            statusLbl.TextColor3 = Color3.fromRGB(0,210,90)
-            submitBtn.Text = "✅ Accepted"
-            task.wait(1.2)
-            sg:Destroy()
-            _keyVerified = true
-        else
-            submitBtn.Text = "✅  Submit Key"
-            submitBtn.BackgroundColor3 = Color3.fromRGB(0,195,85)
-            if msg == "expired" then
-                statusLbl.Text = "❌ Key expired — get a new one via the link"
-                statusLbl.TextColor3 = Color3.fromRGB(255,140,0)
-            elseif msg == "network_error" then
-                statusLbl.Text = "❌ Network error — check your executor"
-                statusLbl.TextColor3 = Color3.fromRGB(255,75,75)
-            else
-                statusLbl.Text = "❌ Invalid key — complete the tasks again"
-                statusLbl.TextColor3 = Color3.fromRGB(255,75,75)
-            end
-        end
-    end)
+    if inp == _expected then
+        statusLbl.Text = "Valid! Loading hpspy v8.0..."
+        statusLbl.TextColor3 = Color3.fromRGB(0,210,90)
+        submitBtn.Text = "Accepted"
+        task.wait(1.2); sg:Destroy(); _verified = true
+    else
+        statusLbl.Text = "Wrong key — did you use YOUR User ID on the page?"
+        statusLbl.TextColor3 = Color3.fromRGB(255,75,75)
+    end
 end)
 
--- Wait until key is verified before continuing
-repeat task.wait(0.1) until _keyVerified
-sg:Destroy()
+repeat task.wait(0.1) until _verified
 
 -- ═══════════════════════════════════════════════
---  MAIN SCRIPT BELOW (runs only after valid key)
+--  MAIN SCRIPT
 -- ═══════════════════════════════════════════════
 --[[
   ══════════════════════════════════════════════════════════════
