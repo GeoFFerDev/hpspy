@@ -829,6 +829,7 @@ local function HookSmoke()
 end
 
 local function ApplyVelocityON(v)
+    -- TargetSelection: open up angle + distance, bypass wall/visibility flags
     v.TargetSelection.MaxDistance = 10000
     v.TargetSelection.MaxAngle    = 6.28
     if v.TargetSelection.CheckWalls  ~= nil then v.TargetSelection.CheckWalls  = false end
@@ -836,28 +837,70 @@ local function ApplyVelocityON(v)
     if rawget(v.TargetSelection,"TargetPart") ~= nil then v.TargetSelection.TargetPart = "Head" end
     if rawget(v.TargetSelection,"TargetBone") ~= nil then v.TargetSelection.TargetBone = "Head" end
     if rawget(v.TargetSelection,"Bone")       ~= nil then v.TargetSelection.Bone       = "Head" end
+
+    -- Horizontal magnetism: strong pull toward body centre (PrimaryPart)
     v.Magnetism.Enabled            = true
     v.Magnetism.MaxDistance        = 10000
     v.Magnetism.PullStrength       = 65.0
     v.Magnetism.StopThreshold      = 0
     v.Magnetism.MaxAngleHorizontal = 6.28
     v.Magnetism.MaxAngleVertical   = 6.28
+
+    -- VerticalMagnetism: explicitly set — pulls camera vertically toward Head.Position.
+    -- Default (from dump) is PullStrength=0.209 which is too weak to reliably reach head.
+    -- We boost it so both axes track aggressively. Without explicitly setting this the
+    -- field stays at whatever state the game left it in (inconsistent between sessions).
+    if v.VerticalMagnetism then
+        v.VerticalMagnetism.Enabled            = true
+        v.VerticalMagnetism.MaxDistance        = 10000
+        v.VerticalMagnetism.PullStrength       = 65.0
+        v.VerticalMagnetism.StopThreshold      = 0
+        v.VerticalMagnetism.MaxAngleHorizontal = 6.28
+        v.VerticalMagnetism.MaxAngleVertical   = 6.28
+    end
+
+    -- Friction: disable slowdown bubble so tracking is smooth
     v.Friction.Enabled             = false
     v.Friction.BubbleRadius        = 0
     v.Friction.MinSensitivity      = 1.0
+
+    -- RecoilAssist: multiplier=1.0 zeroes camera kick (recoil_kick * (1-1.0) = 0).
+    -- This is what makes Zero Spread visually effective — camera stops bouncing so
+    -- the straight bullet path is actually visible. They solve different things:
+    --   RecoilAssist = camera visual kick suppression
+    --   Zero Spread  = bullet direction randomisation suppression
     v.RecoilAssist.Enabled         = true
     v.RecoilAssist.ReductionAmount = 1.0
 end
 
 local function ApplyVelocityOFF(v)
-    v.Magnetism.PullStrength       = 1.0
-    v.Magnetism.MaxDistance        = 300
-    v.Magnetism.MaxAngleHorizontal = 0.5
-    v.Magnetism.MaxAngleVertical   = 0.5
+    -- Restore Magnetism to PLAYER preset defaults (from dump line 64754)
+    v.Magnetism.Enabled            = true
+    v.Magnetism.PullStrength       = 0.11344640137963143
+    v.Magnetism.MaxDistance        = 125
+    v.Magnetism.MaxAngleHorizontal = 0.20943951023931956
+    v.Magnetism.MaxAngleVertical   = 0.10471975511965978
+    v.Magnetism.StopThreshold      = 0.008726646259971648
+
+    -- Restore VerticalMagnetism to PLAYER preset defaults (from dump line 64762)
+    if v.VerticalMagnetism then
+        v.VerticalMagnetism.Enabled            = true
+        v.VerticalMagnetism.PullStrength       = 0.11344640137963143
+        v.VerticalMagnetism.MaxDistance        = 125
+        v.VerticalMagnetism.MaxAngleHorizontal = 0.20943951023931956
+        v.VerticalMagnetism.MaxAngleVertical   = 0.10471975511965978
+        v.VerticalMagnetism.StopThreshold      = 0.008726646259971648
+    end
+
+    -- Restore Friction
     v.Friction.Enabled             = true
-    v.Friction.BubbleRadius        = 5.0
-    v.Friction.MinSensitivity      = 1.0
-    v.RecoilAssist.ReductionAmount = 0.0
+    v.Friction.BubbleRadius        = 2.4
+    v.Friction.MinSensitivity      = 0.5
+
+    -- Restore RecoilAssist to PLAYER preset (ReductionAmount=0.5 from dump line 64770)
+    v.RecoilAssist.Enabled         = true
+    v.RecoilAssist.ReductionAmount = 0.5
+    v.RecoilAssist.RequiresTarget  = false
 end
 
 local function RemoveHL(p)
@@ -1296,6 +1339,7 @@ end)
 LocalPlayer.CharacterRemoving:Connect(function()
     StopNoclip(true)
     StopMagicJump(true)
+    StopHeadLock(true)
     RemoveAllBoxes()
     mj_lastY = math.huge
 end)
@@ -1305,6 +1349,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.1)
     if noclipActive    then StartNoclip()    end
     if magicJumpActive then StartMagicJump() end
+    if headLockActive  then StartHeadLock()  end
     if BOX_ENABLED     then placeCount.Text = "0 boxes" end
 end)
 
@@ -1317,6 +1362,110 @@ FluentToggle(Tab1, "Full Body ESP", "", function(v)
     return v
 end)(true)
 
+
+-- ── Head Lock ─────────────────────────────────────────────────
+-- Runs at RenderPriority.Camera + 3 — AFTER the game's own CameraController
+-- at Camera+1, so our CFrame write is the last thing applied each frame.
+-- Finds the nearest enemy with a visible Head part, then lerps the camera
+-- CFrame to face Head.Position directly. Fully client-side camera manipulation,
+-- zero replication to server, BAC cannot detect this.
+--
+-- Why this is separate from Magnetism:
+--   Magnetism output is hard-clamped to ±0.0873 rad (~5°) per frame inside
+--   the game's CameraController (line 35810 dump). No matter how high PullStrength
+--   is set, it can never snap faster than that. Head Lock bypasses the pipeline
+--   entirely by writing Camera.CFrame directly after the controller runs.
+--
+-- Smoothing: lerp factor 0.22 per frame (~60fps) gives a fast but not instant
+-- snap — snappy enough to track moving heads, smooth enough not to look robotic.
+
+local headLockActive   = false
+local HEAD_LOCK_STEP   = "HL_HeadLock"
+local HEAD_LOCK_LERP   = 0.22   -- 0 = instant, 1 = no movement
+local HEAD_LOCK_RANGE  = 800    -- max stud distance to acquire target
+local HEAD_LOCK_FOV    = 90     -- acquisition cone in degrees (full half-angle = 45°)
+
+local hlRayParams = RaycastParams.new()
+hlRayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function FindHeadTarget()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local myHRP = char:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+
+    -- Build exclusion list: our own character + all friendly characters
+    local excl = { char }
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and not IsEnemy(p) and p.Character then
+            table.insert(excl, p.Character)
+        end
+    end
+    hlRayParams.FilterDescendantsInstances = excl
+
+    local cam       = workspace.CurrentCamera
+    local camPos    = cam.CFrame.Position
+    local camLook   = cam.CFrame.LookVector
+    local halfFOV   = math.rad(HEAD_LOCK_FOV / 2)
+    local best      = nil
+    local bestScore = math.huge  -- lower = better (angle-weighted distance)
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if not IsEnemy(p) then continue end
+        local tc = p.Character
+        if not tc then continue end
+        local hum  = tc:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        if tc:GetAttribute("Dead") == true then continue end
+        local head = tc:FindFirstChild("Head")
+        if not head then continue end
+
+        local headPos = head.Position
+        local toHead  = headPos - camPos
+        local dist    = toHead.Magnitude
+        if dist > HEAD_LOCK_RANGE then continue end
+
+        -- Angle check: only acquire targets within FOV cone
+        local angle = math.acos(math.clamp(camLook:Dot(toHead.Unit), -1, 1))
+        if angle > halfFOV then continue end
+
+        -- Visibility check: raycast from camera to head
+        local rayResult = workspace:Raycast(camPos, toHead.Unit * dist, hlRayParams)
+        local visible   = not rayResult or tc:IsAncestorOf(rayResult.Instance)
+        if not visible then continue end
+
+        -- Score = angle (radians) — closest angle wins regardless of distance
+        local score = angle
+        if score < bestScore then
+            bestScore = score
+            best      = head
+        end
+    end
+    return best
+end
+
+local function StartHeadLock()
+    pcall(function() RunService:UnbindFromRenderStep(HEAD_LOCK_STEP) end)
+    RunService:BindToRenderStep(HEAD_LOCK_STEP, Enum.RenderPriority.Camera.Value + 3, function()
+        if not headLockActive then return end
+        local cam  = workspace.CurrentCamera
+        local head = FindHeadTarget()
+        if not head then return end
+
+        local headPos   = head.Position
+        local camPos    = cam.CFrame.Position
+        local targetCF  = CFrame.lookAt(camPos, headPos)
+
+        -- Spherical lerp between current rotation and target rotation
+        cam.CFrame = cam.CFrame:Lerp(targetCF, HEAD_LOCK_LERP)
+    end)
+end
+
+local function StopHeadLock(keepFlag)
+    if not keepFlag then headLockActive = false end
+    pcall(function() RunService:UnbindFromRenderStep(HEAD_LOCK_STEP) end)
+end
+
 Section(Tab1, "  ◆ AIMBOT")
 FluentToggle(Tab1, "Aimbot", "", function(v)
     local t = FindVelocityTable()
@@ -1327,6 +1476,13 @@ FluentToggle(Tab1, "Aimbot", "", function(v)
     end
     warn("[HPSPY] Velocity table not found — fire a weapon first.")
     return false
+end)
+
+FluentToggle(Tab1, "Head Lock",
+    "Snaps camera directly to nearest enemy head — runs after game's camera controller", function(v)
+    headLockActive = v
+    if v then StartHeadLock() else StopHeadLock() end
+    return v
 end)
 
 Section(Tab1, "  ◆ BULLET")
@@ -1767,6 +1923,7 @@ task.spawn(function()
             if fpsActive          then feats[#feats+1] = "FPSBoost"     end
             if noclipActive       then feats[#feats+1] = "Noclip"       end
             if magicJumpActive    then feats[#feats+1] = "MagicJump"    end
+            if headLockActive     then feats[#feats+1] = "HeadLock"     end
             PushLog("BAN", "!! BANNED: " .. name
                 .. " | Active: " .. (#feats > 0 and table.concat(feats,",") or "none"))
             PushLog("BAN", "Log frozen — scroll up to review pre-ban activity.")
@@ -1800,17 +1957,19 @@ task.spawn(function()
     end
 end)
 
-PushLog("SYS", "HPSPY v8.0 loaded.")
+PushLog("SYS", "HPSPY v8.1 loaded.")
 
 Section(Tab5, "  ◆ BUILD")
-AddButton(Tab5, "HPSPY  ·  Bloxstrike  ·  v8.0", function() end)
+AddButton(Tab5, "HPSPY  ·  Bloxstrike  ·  v8.1", function() end)
 Section(Tab5, "  ◆ NOTES")
-AddButton(Tab5, "Aimbot — fire weapon first before enabling", function() end)
-AddButton(Tab5, "Zero Spread — fire weapon first before enabling", function() end)
+AddButton(Tab5, "Aimbot — fire weapon first. RecoilAssist+VerticalMag both set.", function() end)
+AddButton(Tab5, "Zero Spread — hooks applySpread. Aimbot handles camera kick.", function() end)
 AddButton(Tab5, "Ban Logger — pre-ban events logged above", function() end)
+AddButton(Tab5, "Head Lock — lerps camera to enemy head, runs after game camera", function() end)
+AddButton(Tab5, "Head Lock — independent of Aimbot, can use both or either", function() end)
 
-print("[HPSPY] v8.0 loaded.")
-print("  Tab 1 Combat  : ESP | Aimbot | Zero Spread | Audio ESP")
+print("[HPSPY] v8.1 loaded.")
+print("  Tab 1 Combat  : ESP | Aimbot | Head Lock | Zero Spread | Audio ESP")
 print("  Tab 2 Weapon  : Infinite Ammo")
 print("  Tab 3 Visual  : FPS Boost | FOV Unlocker")
 print("  Tab 4 Movement: Noclip | Magic Jump | Platform Spawner")
