@@ -96,9 +96,9 @@ for _i=1,#llIIlIlI,4 do
   local _a,_b,_c,_d=(llIIlIlI):byte(_i,_i+3)
   local function _p(x) if not x or x==61 then return 0 end; return (_b64chars:find(string.char(x),1,true) or 1)-1 end
   local _n=_p(_a)*262144+_p(_b)*4096+_p(_c)*64+_p(_d)
-  _ri=_ri+1;_raw[_ri]=(_n>>16)&255
-  _ri=_ri+1;_raw[_ri]=(_n>>8)&255
-  _ri=_ri+1;_raw[_ri]=_n&255
+  _ri=_ri+1;_raw[_ri]=math.floor(_n/65536)%256
+  _ri=_ri+1;_raw[_ri]=math.floor(_n/256)%256
+  _ri=_ri+1;_raw[_ri]=_n%256
 end
 
 while _ri>0 and _raw[_ri]==0 do _ri=_ri-1 end
@@ -106,7 +106,7 @@ local lIllIIlIlIlIll=1
 local function lllIllIIII()
   local llIIllIIIIIlI=_raw[lIllIIlIlIlIll] or 0
   lIllIIlIlIlIll=lIllIIlIlIlIll+1
-  return llIIllIIIIIlI~llllllllIIl()
+  return (bit32 and bit32.bxor(llIIllIIIIIlI,llllllllIIl())) or (llIIllIIIIIlI~llllllllIIl())
 end
 local function IlIlIlIII() return lllIllIIII() end
 local function lIllIIlIIl()
