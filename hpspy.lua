@@ -1296,7 +1296,6 @@ end)
 LocalPlayer.CharacterRemoving:Connect(function()
     StopNoclip(true)
     StopMagicJump(true)
-    StopHeadLock(true)
     RemoveAllBoxes()
     mj_lastY = math.huge
 end)
@@ -1306,7 +1305,6 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.1)
     if noclipActive    then StartNoclip()    end
     if magicJumpActive then StartMagicJump() end
-    if headLockActive  then StartHeadLock()  end
     if BOX_ENABLED     then placeCount.Text = "0 boxes" end
 end)
 
@@ -1319,84 +1317,6 @@ FluentToggle(Tab1, "Full Body ESP", "", function(v)
     return v
 end)(true)
 
-
--- ── Head Lock ─────────────────────────────────────────────────
--- Runs at RenderPriority.Camera + 3 — AFTER the game's own CameraController
--- at Camera+1, so our CFrame write is the last thing applied each frame.
--- Finds the nearest visible enemy Head part and lerps the camera CFrame
--- to face it directly. Fully client-side, zero replication, BAC-safe.
--- Independent of Aimbot — can be used alone or together.
-
-local headLockActive  = false
-local HEAD_LOCK_STEP  = "HL_HeadLock"
-local HEAD_LOCK_LERP  = 0.22   -- 0 = instant snap, higher = slower
-local HEAD_LOCK_RANGE = 800    -- studs
-local HEAD_LOCK_FOV   = 90     -- acquisition cone full angle (degrees)
-
-local hlRayParams = RaycastParams.new()
-hlRayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-local function FindHeadTarget()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    if not char:FindFirstChild("HumanoidRootPart") then return nil end
-
-    local excl = { char }
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and not IsEnemy(p) and p.Character then
-            table.insert(excl, p.Character)
-        end
-    end
-    hlRayParams.FilterDescendantsInstances = excl
-
-    local cam      = workspace.CurrentCamera
-    local camPos   = cam.CFrame.Position
-    local camLook  = cam.CFrame.LookVector
-    local halfFOV  = math.rad(HEAD_LOCK_FOV / 2)
-    local best, bestScore = nil, math.huge
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if not IsEnemy(p) then continue end
-        local tc = p.Character
-        if not tc then continue end
-        local hum = tc:FindFirstChildOfClass("Humanoid")
-        if not hum or hum.Health <= 0 then continue end
-        if tc:GetAttribute("Dead") == true then continue end
-        local head = tc:FindFirstChild("Head")
-        if not head then continue end
-
-        local toHead = head.Position - camPos
-        local dist   = toHead.Magnitude
-        if dist > HEAD_LOCK_RANGE then continue end
-
-        local angle = math.acos(math.clamp(camLook:Dot(toHead.Unit), -1, 1))
-        if angle > halfFOV then continue end
-
-        local ray     = workspace:Raycast(camPos, toHead.Unit * dist, hlRayParams)
-        local visible = not ray or tc:IsAncestorOf(ray.Instance)
-        if not visible then continue end
-
-        if angle < bestScore then bestScore = angle; best = head end
-    end
-    return best
-end
-
-local function StartHeadLock()
-    pcall(function() RunService:UnbindFromRenderStep(HEAD_LOCK_STEP) end)
-    RunService:BindToRenderStep(HEAD_LOCK_STEP, Enum.RenderPriority.Camera.Value + 3, function()
-        if not headLockActive then return end
-        local cam  = workspace.CurrentCamera
-        local head = FindHeadTarget()
-        if not head then return end
-        cam.CFrame = cam.CFrame:Lerp(CFrame.lookAt(cam.CFrame.Position, head.Position), HEAD_LOCK_LERP)
-    end)
-end
-
-local function StopHeadLock(keepFlag)
-    if not keepFlag then headLockActive = false end
-    pcall(function() RunService:UnbindFromRenderStep(HEAD_LOCK_STEP) end)
-end
-
 Section(Tab1, "  ◆ AIMBOT")
 FluentToggle(Tab1, "Aimbot", "", function(v)
     local t = FindVelocityTable()
@@ -1407,13 +1327,6 @@ FluentToggle(Tab1, "Aimbot", "", function(v)
     end
     warn("[PoldenDog] Velocity table not found — fire a weapon first.")
     return false
-end)
-
-FluentToggle(Tab1, "Head Lock",
-    "Lerps camera to nearest enemy head — works with or without Aimbot", function(v)
-    headLockActive = v
-    if v then StartHeadLock() else StopHeadLock() end
-    return v
 end)
 
 Section(Tab1, "  ◆ BULLET")
@@ -1854,7 +1767,6 @@ task.spawn(function()
             if fpsActive          then feats[#feats+1] = "FPSBoost"     end
             if noclipActive       then feats[#feats+1] = "Noclip"       end
             if magicJumpActive    then feats[#feats+1] = "MagicJump"    end
-            if headLockActive     then feats[#feats+1] = "HeadLock"     end
             PushLog("BAN", "!! BANNED: " .. name
                 .. " | Active: " .. (#feats > 0 and table.concat(feats,",") or "none"))
             PushLog("BAN", "Log frozen — scroll up to review pre-ban activity.")
@@ -1894,12 +1806,11 @@ Section(Tab5, "  ◆ BUILD")
 AddButton(Tab5, "PoldenDogV1Beta  ·  Bloxstrike", function() end)
 Section(Tab5, "  ◆ NOTES")
 AddButton(Tab5, "Aimbot — fire weapon first before enabling", function() end)
-AddButton(Tab5, "Head Lock — independent of Aimbot, no warmup needed", function() end)
 AddButton(Tab5, "Zero Spread — fire weapon first before enabling", function() end)
 AddButton(Tab5, "Ban Logger — pre-ban events logged above", function() end)
 
 print("[PoldenDogV1Beta] loaded.")
-print("  Tab 1 Combat  : ESP | Aimbot | Head Lock | Zero Spread | Audio ESP")
+print("  Tab 1 Combat  : ESP | Aimbot | Zero Spread | Audio ESP")
 print("  Tab 2 Weapon  : Infinite Ammo")
 print("  Tab 3 Visual  : FPS Boost | FOV Unlocker")
 print("  Tab 4 Movement: Noclip | Magic Jump | Platform Spawner")
