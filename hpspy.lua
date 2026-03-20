@@ -79,7 +79,7 @@ linkBtn.Font             = Enum.Font.GothamBold
 linkBtn.TextSize         = 13
 Instance.new("UICorner", linkBtn).CornerRadius = UDim.new(0,6)
 linkBtn.MouseButton1Click:Connect(function()
-    pcall(function() setclipboard("YOUR_LOOTLABS_LINK_HERE") end)
+    pcall(function() setclipboard("https://loot-link.com/s?r4Kiz5Ef") end)
     infoLbl.Text = "✅ Link copied! Open in browser, finish steps, copy the key."
 end)
 
